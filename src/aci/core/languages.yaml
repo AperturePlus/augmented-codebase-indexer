@@ -1,0 +1,102 @@
+# Language Registry Configuration
+# Maps file extensions to programming language identifiers
+#
+# Format:
+#   language_name:
+#     - .ext1
+#     - .ext2
+#
+# To add a new language, simply add a new entry with its extensions.
+
+# Core languages (MVP support with Tree-sitter)
+python:
+  - .py
+  - .pyw
+  - .pyi
+
+javascript:
+  - .js
+  - .jsx
+  - .mjs
+  - .cjs
+
+typescript:
+  - .ts
+  - .tsx
+  - .mts
+  - .cts
+
+go:
+  - .go
+
+# Systems programming
+rust:
+  - .rs
+
+c:
+  - .c
+  - .h
+
+cpp:
+  - .cpp
+  - .cc
+  - .cxx
+  - .hpp
+  - .hxx
+
+# JVM languages
+java:
+  - .java
+
+kotlin:
+  - .kt
+  - .kts
+
+scala:
+  - .scala
+  - .sc
+
+# .NET languages
+csharp:
+  - .cs
+
+# Mobile development
+swift:
+  - .swift
+
+# Scripting languages
+ruby:
+  - .rb
+  - .rake
+  - .gemspec
+
+php:
+  - .php
+
+lua:
+  - .lua
+
+r:
+  - .r
+  - .R
+
+shell:
+  - .sh
+  - .bash
+  - .zsh
+
+# Data & Query languages
+sql:
+  - .sql
+
+# Documentation & Config
+markdown:
+  - .md
+  - .markdown
+
+yaml:
+  - .yaml
+  - .yml
+
+json:
+  - .json

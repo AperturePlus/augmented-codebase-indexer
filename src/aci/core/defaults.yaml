@@ -1,0 +1,48 @@
+# ACI Default Configuration
+# This file contains default values for all configuration options.
+# Users can override these by providing their own config file or environment variables.
+
+embedding:
+  api_key: ""
+  api_url: "https://api.openai.com/v1/embeddings"
+  model: "text-embedding-3-small"
+  batch_size: 100
+  max_retries: 3
+  timeout: 30.0
+
+vector_store:
+  host: "localhost"
+  port: 6333
+  collection_name: "aci_codebase"
+  vector_size: 1536
+
+indexing:
+  file_extensions:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".go"
+  ignore_patterns:
+    - "__pycache__"
+    - "*.pyc"
+    - ".git"
+    - "node_modules"
+    - ".venv"
+    - "venv"
+    - "*.egg-info"
+    - "dist"
+    - "build"
+    - ".tox"
+    - ".pytest_cache"
+  max_chunk_tokens: 8192
+  chunk_overlap_lines: 2
+  max_workers: 4
+
+search:
+  default_limit: 10
+  use_rerank: false
+  rerank_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
