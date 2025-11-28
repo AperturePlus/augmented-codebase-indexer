@@ -9,14 +9,12 @@ external dependencies.
 """
 
 import asyncio
-import tempfile
 import shutil
-from datetime import datetime
+import tempfile
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Set
 
-import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from aci.core.file_scanner import FileScanner
@@ -66,7 +64,7 @@ def create_indexing_components(temp_dir: Path, db_name: str = "metadata.db"):
     embedding_client = LocalEmbeddingClient()
     metadata_store = IndexMetadataStore(temp_dir / db_name)
     file_scanner = FileScanner(extensions={".py"})
-    
+
     service = IndexingService(
         embedding_client=embedding_client,
         vector_store=vector_store,
@@ -81,7 +79,7 @@ class TestIncrementalUpdateModifiedFile:
     """
     **Feature: codebase-semantic-search, Property 15: Incremental Update - Modified File**
     **Validates: Requirements 5.1**
-    
+
     *For any* initially indexed file that is modified, after incremental update,
     the Vector_Store should only contain the new chunks (old chunks deleted).
     """
@@ -97,36 +95,36 @@ class TestIncrementalUpdateModifiedFile:
     def test_modified_file_updates_chunks(self, original_content, modified_content):
         """Modified files should have old chunks removed and new chunks added."""
         assume(original_content != modified_content)
-        
+
         temp_dir = Path(tempfile.mkdtemp())
         try:
             service, vector_store, metadata_store = create_indexing_components(temp_dir)
-            
+
             # Create initial file
             test_file = create_test_file(temp_dir, "test_module.py", original_content)
-            
+
             # Initial indexing
             result1 = run_async(service.index_directory(temp_dir))
             assert result1.total_files >= 1
-            
+
             # Get original chunks
             original_stats = run_async(vector_store.get_stats())
             original_chunk_count = original_stats["total_vectors"]
-            
+
             # Modify the file
             test_file.write_text(modified_content, encoding="utf-8")
-            
+
             # Incremental update
             result2 = run_async(service.update_incremental(temp_dir))
-            
+
             # Verify modified file was detected
             assert result2.modified_files == 1
             assert result2.new_files == 0
             assert result2.deleted_files == 0
-            
+
             # Verify chunks were updated (old removed, new added)
             new_stats = run_async(vector_store.get_stats())
-            
+
             # All chunks should be for the modified file
             assert new_stats["total_files"] == 1
         finally:
@@ -138,7 +136,7 @@ class TestIncrementalUpdateDeletedFile:
     """
     **Feature: codebase-semantic-search, Property 16: Incremental Update - Deleted File**
     **Validates: Requirements 5.2**
-    
+
     *For any* initially indexed file that is deleted, after incremental update,
     the Vector_Store should not contain any chunks for that file path.
     """
@@ -153,29 +151,29 @@ class TestIncrementalUpdateDeletedFile:
         temp_dir = Path(tempfile.mkdtemp())
         try:
             service, vector_store, metadata_store = create_indexing_components(temp_dir)
-            
+
             # Create initial file
             test_file = create_test_file(temp_dir, "to_delete.py", content)
-            
+
             # Initial indexing
             result1 = run_async(service.index_directory(temp_dir))
             assert result1.total_files >= 1
-            
+
             # Verify chunks exist
             stats_before = run_async(vector_store.get_stats())
             assert stats_before["total_vectors"] > 0
-            
+
             # Delete the file
             test_file.unlink()
-            
+
             # Incremental update
             result2 = run_async(service.update_incremental(temp_dir))
-            
+
             # Verify deleted file was detected
             assert result2.deleted_files == 1
             assert result2.new_files == 0
             assert result2.modified_files == 0
-            
+
             # Verify all chunks were removed
             stats_after = run_async(vector_store.get_stats())
             assert stats_after["total_vectors"] == 0
@@ -189,7 +187,7 @@ class TestIncrementalUpdateNewFile:
     """
     **Feature: codebase-semantic-search, Property 17: Incremental Update - New File**
     **Validates: Requirements 5.3**
-    
+
     *For any* file added after initial indexing, after incremental update,
     the Vector_Store should contain chunks for the new file.
     """
@@ -207,28 +205,28 @@ class TestIncrementalUpdateNewFile:
         temp_dir = Path(tempfile.mkdtemp())
         try:
             service, vector_store, metadata_store = create_indexing_components(temp_dir)
-            
+
             # Create initial file
             create_test_file(temp_dir, "initial.py", initial_content)
-            
+
             # Initial indexing
             result1 = run_async(service.index_directory(temp_dir))
             initial_files = result1.total_files
-            
+
             stats_before = run_async(vector_store.get_stats())
             initial_chunks = stats_before["total_vectors"]
-            
+
             # Add new file
             create_test_file(temp_dir, "new_module.py", new_content)
-            
+
             # Incremental update
             result2 = run_async(service.update_incremental(temp_dir))
-            
+
             # Verify new file was detected
             assert result2.new_files == 1
             assert result2.modified_files == 0
             assert result2.deleted_files == 0
-            
+
             # Verify chunks were added
             stats_after = run_async(vector_store.get_stats())
             assert stats_after["total_vectors"] > initial_chunks
@@ -242,7 +240,7 @@ class TestMetadataStatisticsConsistency:
     """
     **Feature: codebase-semantic-search, Property 18: Metadata Statistics Consistency**
     **Validates: Requirements 5.5**
-    
+
     *For any* completed indexing or update operation, the IndexMetadataStore
     statistics should match the actual indexed files and VectorStore chunks.
     """
@@ -263,24 +261,24 @@ class TestMetadataStatisticsConsistency:
         temp_dir = Path(tempfile.mkdtemp())
         try:
             service, vector_store, metadata_store = create_indexing_components(temp_dir)
-            
+
             # Create test files
             for i, content in enumerate(file_contents):
                 create_test_file(temp_dir, f"module_{i}.py", content)
-            
+
             # Index directory
             result = run_async(service.index_directory(temp_dir))
-            
+
             # Get metadata stats
             metadata_stats = metadata_store.get_stats()
-            
+
             # Get vector store stats
             vector_stats = run_async(vector_store.get_stats())
-            
+
             # Verify file count consistency
             assert metadata_stats["total_files"] == vector_stats["total_files"]
             assert metadata_stats["total_files"] == len(file_contents)
-            
+
             # Verify chunk count consistency
             # Note: metadata_stats["total_chunks"] is the sum of chunk_count from indexed_files table
             # vector_stats["total_vectors"] is the actual count in vector store
@@ -294,7 +292,7 @@ class TestParallelProcessingDeterminism:
     """
     **Feature: codebase-semantic-search, Property 19: Parallel Processing Determinism**
     **Validates: Requirements 6.1**
-    
+
     *For any* codebase, indexing with different worker counts should produce
     the same set of chunks (same content, same line numbers), though order may differ.
     """
@@ -305,7 +303,7 @@ class TestParallelProcessingDeterminism:
         embedding_client = LocalEmbeddingClient()
         metadata_store = IndexMetadataStore(temp_dir / f"metadata_{db_suffix}.db")
         file_scanner = FileScanner(extensions={".py"})
-        
+
         service = IndexingService(
             embedding_client=embedding_client,
             vector_store=vector_store,
@@ -334,54 +332,58 @@ class TestParallelProcessingDeterminism:
             # Create test files
             for i, content in enumerate(file_contents):
                 create_test_file(temp_dir, f"module_{i}.py", content)
-            
+
             # Index with 1 worker
             service1, vector_store1, metadata_store1 = self._create_indexing_service(
                 temp_dir, max_workers=1, db_suffix="1"
             )
             metadata_stores.append(metadata_store1)
             result1 = run_async(service1.index_directory(temp_dir))
-            
+
             # Index with 2 workers
             service2, vector_store2, metadata_store2 = self._create_indexing_service(
                 temp_dir, max_workers=2, db_suffix="2"
             )
             metadata_stores.append(metadata_store2)
             result2 = run_async(service2.index_directory(temp_dir))
-            
+
             # Compare results
             assert result1.total_files == result2.total_files
             assert result1.total_chunks == result2.total_chunks
-            
+
             # Get all chunks from both stores
             stats1 = run_async(vector_store1.get_stats())
             stats2 = run_async(vector_store2.get_stats())
-            
+
             assert stats1["total_vectors"] == stats2["total_vectors"]
             assert stats1["total_files"] == stats2["total_files"]
-            
+
             # Extract chunk contents for comparison
             chunks1_contents: Set[tuple] = set()
             chunks2_contents: Set[tuple] = set()
-            
+
             for chunk_id in vector_store1._payloads:
                 payload = vector_store1._payloads[chunk_id]
-                chunks1_contents.add((
-                    payload["file_path"],
-                    payload["start_line"],
-                    payload["end_line"],
-                    payload["content"],
-                ))
-            
+                chunks1_contents.add(
+                    (
+                        payload["file_path"],
+                        payload["start_line"],
+                        payload["end_line"],
+                        payload["content"],
+                    )
+                )
+
             for chunk_id in vector_store2._payloads:
                 payload = vector_store2._payloads[chunk_id]
-                chunks2_contents.add((
-                    payload["file_path"],
-                    payload["start_line"],
-                    payload["end_line"],
-                    payload["content"],
-                ))
-            
+                chunks2_contents.add(
+                    (
+                        payload["file_path"],
+                        payload["start_line"],
+                        payload["end_line"],
+                        payload["content"],
+                    )
+                )
+
             # Chunks should be identical (ignoring order and chunk_id)
             assert chunks1_contents == chunks2_contents
         finally:

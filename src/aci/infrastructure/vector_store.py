@@ -4,6 +4,7 @@ Vector Store for Project ACI.
 Provides Qdrant-based vector storage and retrieval for code chunks.
 """
 
+import asyncio
 import fnmatch
 import logging
 from abc import ABC, abstractmethod
@@ -18,12 +19,14 @@ logger = logging.getLogger(__name__)
 
 class VectorStoreError(Exception):
     """Base exception for vector store errors."""
+
     pass
 
 
 @dataclass
 class SearchResult:
     """Search result from vector store."""
+
     chunk_id: str
     file_path: str
     start_line: int
@@ -55,12 +58,12 @@ class VectorStoreInterface(ABC):
     ) -> List[SearchResult]:
         """
         Search for similar vectors.
-        
+
         Args:
             query_vector: Query embedding vector
             limit: Maximum results to return
             file_filter: Optional glob pattern for file paths
-            
+
         Returns:
             List of SearchResult sorted by score descending
         """
@@ -76,11 +79,15 @@ class VectorStoreInterface(ABC):
         """Get a specific chunk by ID."""
         pass
 
+    async def reset(self) -> None:
+        """Reset/clear the vector store (optional)."""
+        pass
+
 
 class QdrantVectorStore(VectorStoreInterface):
     """
     Qdrant-based vector store implementation.
-    
+
     Stores code chunk embeddings with metadata for semantic search.
     """
 
@@ -94,7 +101,7 @@ class QdrantVectorStore(VectorStoreInterface):
     ):
         """
         Initialize Qdrant vector store.
-        
+
         Args:
             host: Qdrant server host
             port: Qdrant server port
@@ -130,9 +137,7 @@ class QdrantVectorStore(VectorStoreInterface):
         try:
             # Check if collection exists
             collections = await client.get_collections()
-            exists = any(
-                c.name == self._collection_name for c in collections.collections
-            )
+            exists = any(c.name == self._collection_name for c in collections.collections)
 
             if not exists:
                 await client.create_collection(
@@ -151,6 +156,22 @@ class QdrantVectorStore(VectorStoreInterface):
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
                 logger.info("Created payload index for file_path")
+            else:
+                # Validate existing collection vector size matches config
+                collection_info = await client.get_collection(self._collection_name)
+                existing_params = collection_info.config.params if collection_info.config else None
+                existing_param_size = (
+                    existing_params.vectors.size
+                    if existing_params and existing_params.vectors
+                    else None
+                )
+                if existing_param_size and existing_param_size != self._vector_size:
+                    raise VectorStoreError(
+                        f"Existing collection '{self._collection_name}' has vector size {existing_param_size}, "
+                        f"but config requested {self._vector_size}. "
+                        f"Either delete/recreate the collection or set ACI_VECTOR_STORE_VECTOR_SIZE="
+                        f"{existing_param_size} (and match your embedding dimension)."
+                    )
 
             self._initialized = True
 
@@ -174,14 +195,15 @@ class QdrantVectorStore(VectorStoreInterface):
                 ],
             )
         except Exception as e:
-            raise VectorStoreError(f"Failed to upsert vector: {e}") from e
+            raise VectorStoreError(
+                f"Failed to upsert vector (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}, vector_size={self._vector_size}): {e}"
+            ) from e
 
-    async def upsert_batch(
-        self, points: List[tuple[str, List[float], dict]]
-    ) -> None:
+    async def upsert_batch(self, points: List[tuple[str, List[float], dict]]) -> None:
         """
         Batch insert or update vectors.
-        
+
         Args:
             points: List of (chunk_id, vector, payload) tuples
         """
@@ -198,7 +220,11 @@ class QdrantVectorStore(VectorStoreInterface):
                 points=qdrant_points,
             )
         except Exception as e:
-            raise VectorStoreError(f"Failed to batch upsert vectors: {e}") from e
+            raise VectorStoreError(
+                f"Failed to batch upsert vectors (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}, vector_size={self._vector_size}, "
+                f"count={len(points)}): {e}"
+            ) from e
 
     async def delete_by_file(self, file_path: str) -> int:
         """Delete all vectors for a file, return count deleted."""
@@ -239,7 +265,10 @@ class QdrantVectorStore(VectorStoreInterface):
             return count
 
         except Exception as e:
-            raise VectorStoreError(f"Failed to delete vectors: {e}") from e
+            raise VectorStoreError(
+                f"Failed to delete vectors for file '{file_path}' "
+                f"(host={self._host}, port={self._port}, collection={self._collection_name}): {e}"
+            ) from e
 
     async def search(
         self,
@@ -249,12 +278,12 @@ class QdrantVectorStore(VectorStoreInterface):
     ) -> List[SearchResult]:
         """
         Search for similar vectors.
-        
+
         Args:
             query_vector: Query embedding vector
             limit: Maximum results to return
             file_filter: Optional glob pattern for file paths
-            
+
         Returns:
             List of SearchResult sorted by score descending
         """
@@ -269,16 +298,32 @@ class QdrantVectorStore(VectorStoreInterface):
                 # Qdrant doesn't support glob matching natively
                 pass
 
-            results = await client.search(
-                collection_name=self._collection_name,
-                query_vector=query_vector,
-                limit=limit * 5 if file_filter else limit,  # Fetch more if filtering
-                query_filter=search_filter,
-                with_payload=True,
-            )
+            fetch_limit = limit * 5 if file_filter else limit
+
+            # Prefer query_points (available in modern clients)
+            try:
+                results = await client.query_points(
+                    collection_name=self._collection_name,
+                    query=query_vector,
+                    limit=fetch_limit,
+                    query_filter=search_filter,
+                    with_payload=True,
+                )
+            except AttributeError:
+                logger.warning(
+                    "AsyncQdrantClient.query_points unavailable, falling back to sync client"
+                )
+                results = await self._query_with_sync_client(
+                    query_vector=query_vector,
+                    limit=fetch_limit,
+                    search_filter=search_filter,
+                )
 
             search_results = []
-            for point in results:
+            # query_points returns a models.QueryResponse; for sync fallback, we will return list of ScoredPoint
+            points = results if isinstance(results, list) else getattr(results, "points", results)
+
+            for point in points:
                 payload = point.payload or {}
                 file_path = payload.get("file_path", "")
 
@@ -308,7 +353,62 @@ class QdrantVectorStore(VectorStoreInterface):
             return search_results
 
         except Exception as e:
-            raise VectorStoreError(f"Failed to search vectors: {e}") from e
+            raise VectorStoreError(
+                f"Failed to search vectors (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}, limit={limit}, filter={file_filter}): {e}"
+            ) from e
+
+    async def _search_with_sync_client(
+        self,
+        query_vector: List[float],
+        limit: int,
+        search_filter: Optional[models.Filter],
+    ):
+        """Fallback search using sync QdrantClient executed in a thread."""
+        from qdrant_client import QdrantClient
+
+        def _do_query():
+            client = QdrantClient(
+                host=self._host,
+                port=self._port,
+                api_key=self._api_key,
+            )
+            return client.query_points(
+                collection_name=self._collection_name,
+                query=query_vector,
+                limit=limit,
+                query_filter=search_filter,
+                with_payload=True,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _do_query)
+
+    async def _query_with_sync_client(
+        self,
+        query_vector: List[float],
+        limit: int,
+        search_filter: Optional[models.Filter],
+    ):
+        """Backward compatible alias; kept for clarity."""
+        from qdrant_client import QdrantClient
+
+        def _do_search():
+            client = QdrantClient(
+                host=self._host,
+                port=self._port,
+                api_key=self._api_key,
+            )
+            return client.query_points(
+                collection_name=self._collection_name,
+                query=query_vector,
+                limit=limit,
+                query_filter=search_filter,
+                with_payload=True,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _do_search)
 
     async def get_stats(self) -> dict:
         """Get storage statistics."""
@@ -343,7 +443,10 @@ class QdrantVectorStore(VectorStoreInterface):
             }
 
         except Exception as e:
-            raise VectorStoreError(f"Failed to get stats: {e}") from e
+            raise VectorStoreError(
+                f"Failed to get stats (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}): {e}"
+            ) from e
 
     async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
         """Get a specific chunk by ID."""
@@ -380,7 +483,21 @@ class QdrantVectorStore(VectorStoreInterface):
         except UnexpectedResponse:
             return None
         except Exception as e:
-            raise VectorStoreError(f"Failed to get by ID: {e}") from e
+            raise VectorStoreError(
+                f"Failed to get by ID (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}, id={chunk_id}): {e}"
+            ) from e
+
+    async def reset(self) -> None:
+        """Drop and recreate the collection."""
+        client = await self._get_client()
+        try:
+            await client.delete_collection(self._collection_name)
+        except Exception:
+            # Ignore if doesn't exist
+            pass
+        self._initialized = False
+        await self.initialize()
 
     async def close(self) -> None:
         """Close the client connection."""
@@ -399,14 +516,14 @@ def create_vector_store(
 ) -> VectorStoreInterface:
     """
     Factory function to create a vector store.
-    
+
     Args:
         host: Qdrant server host
         port: Qdrant server port
         collection_name: Name of the collection
         vector_size: Dimension of embedding vectors
         api_key: Optional API key for authentication
-        
+
     Returns:
         Configured VectorStoreInterface instance
     """

@@ -2,46 +2,46 @@
 Core Layer - File scanning, AST parsing, chunking, and tokenization components.
 """
 
-from aci.core.config import (
-    ACIConfig,
-    EmbeddingConfig,
-    VectorStoreConfig,
-    IndexingConfig,
-    SearchConfig,
-    LoggingConfig,
-    load_config,
-)
-from aci.core.file_scanner import (
-    ScannedFile,
-    FileScannerInterface,
-    FileScanner,
-    LanguageRegistry,
-    get_default_registry,
-    EXTENSION_TO_LANGUAGE,
-)
 from aci.core.ast_parser import (
+    SUPPORTED_LANGUAGES,
     ASTNode,
     ASTParserInterface,
     TreeSitterParser,
-    SUPPORTED_LANGUAGES,
     check_tree_sitter_setup,
 )
-from aci.core.tokenizer import (
-    TokenizerInterface,
-    TiktokenTokenizer,
-    get_default_tokenizer,
-)
 from aci.core.chunker import (
-    CodeChunk,
-    ChunkerInterface,
     Chunker,
-    create_chunker,
+    ChunkerInterface,
+    CodeChunk,
+    GoImportExtractor,
     ImportExtractorInterface,
     ImportExtractorRegistry,
-    PythonImportExtractor,
     JavaScriptImportExtractor,
-    GoImportExtractor,
+    PythonImportExtractor,
+    create_chunker,
     get_import_registry,
+)
+from aci.core.config import (
+    ACIConfig,
+    EmbeddingConfig,
+    IndexingConfig,
+    LoggingConfig,
+    SearchConfig,
+    VectorStoreConfig,
+    load_config,
+)
+from aci.core.file_scanner import (
+    EXTENSION_TO_LANGUAGE,
+    FileScanner,
+    FileScannerInterface,
+    LanguageRegistry,
+    ScannedFile,
+    get_default_registry,
+)
+from aci.core.tokenizer import (
+    TiktokenTokenizer,
+    TokenizerInterface,
+    get_default_tokenizer,
 )
 
 __all__ = [

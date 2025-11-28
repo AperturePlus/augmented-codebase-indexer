@@ -16,12 +16,14 @@ logger = logging.getLogger(__name__)
 
 class MetadataStoreError(Exception):
     """Base exception for metadata store errors."""
+
     pass
 
 
 @dataclass
 class IndexedFileInfo:
     """Information about an indexed file."""
+
     file_path: str
     content_hash: str
     language: str
@@ -34,7 +36,7 @@ class IndexedFileInfo:
 class IndexMetadataStore:
     """
     SQLite-based index metadata storage.
-    
+
     Tracks indexed files, their hashes, and statistics for
     incremental update support.
     """
@@ -79,7 +81,7 @@ class IndexMetadataStore:
     def __init__(self, db_path: Path | str):
         """
         Initialize the metadata store.
-        
+
         Args:
             db_path: Path to the SQLite database file
         """
@@ -92,12 +94,12 @@ class IndexMetadataStore:
         if self._conn is None:
             # Ensure parent directory exists
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Don't use PARSE_DECLTYPES to avoid timestamp conversion issues
             # We handle datetime conversion manually
             self._conn = sqlite3.connect(str(self._db_path))
             self._conn.row_factory = sqlite3.Row
-            
+
         return self._conn
 
     def initialize(self) -> None:
@@ -223,7 +225,7 @@ class IndexMetadataStore:
     def delete_file(self, file_path: str) -> bool:
         """
         Delete file index information.
-        
+
         Returns:
             True if file was deleted, False if not found
         """
@@ -244,7 +246,7 @@ class IndexMetadataStore:
     def delete_files_batch(self, file_paths: List[str]) -> int:
         """
         Batch delete file index information.
-        
+
         Returns:
             Number of files deleted
         """
@@ -265,10 +267,10 @@ class IndexMetadataStore:
     def get_files_older_than(self, days: int) -> List[str]:
         """
         Get files indexed more than N days ago.
-        
+
         Args:
             days: Number of days threshold
-            
+
         Returns:
             List of file paths
         """
@@ -292,7 +294,7 @@ class IndexMetadataStore:
     def get_all_file_hashes(self) -> Dict[str, str]:
         """
         Get all file paths and their content hashes.
-        
+
         Returns:
             Dict mapping file_path to content_hash
         """
@@ -300,9 +302,7 @@ class IndexMetadataStore:
         conn = self._get_connection()
 
         try:
-            cursor = conn.execute(
-                "SELECT file_path, content_hash FROM indexed_files"
-            )
+            cursor = conn.execute("SELECT file_path, content_hash FROM indexed_files")
             return {row["file_path"]: row["content_hash"] for row in cursor.fetchall()}
 
         except sqlite3.Error as e:
@@ -340,7 +340,7 @@ class IndexMetadataStore:
     def get_stats(self) -> Dict:
         """
         Get index statistics.
-        
+
         Returns:
             Dict with total_files, total_chunks, total_lines, languages
         """
@@ -455,10 +455,10 @@ class IndexMetadataStore:
 def create_metadata_store(db_path: Path | str) -> IndexMetadataStore:
     """
     Factory function to create a metadata store.
-    
+
     Args:
         db_path: Path to the SQLite database file
-        
+
     Returns:
         Configured IndexMetadataStore instance
     """

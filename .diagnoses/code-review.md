@@ -1,9 +1,116 @@
-# Project ACI 代码诊断
+# Code Quality Diagnosis Report
 
-## 发现的问题
-- **CLI 入口缺失（需求 8 全部不可用）**：`pyproject.toml:38` 将可执行脚本指向 `aci.cli:app`，但 `src/aci/cli/__init__.py:1` 只有注释，没有 Typer 应用或任何命令，运行 `aci` 会直接导入失败。
-- **服务层未实现（需求 1/2/4/5/6/9 未覆盖）**：设计文档要求的 `IndexingService`、`SearchService`、`EvaluationService` 等均不存在，`src/aci/services/__init__.py:1` 只有注释，仓库内也找不到任何对应类或并行/进度/评估逻辑，导致扫描、分块、嵌入、搜索、增量更新、评测流程都无法编排。
-- **基础设施层缺失（需求 3/4 无法满足）**：`src/aci/infrastructure/__init__.py:1` 仅有占位注释，没有 EmbeddingClient（批处理、退避重试）、VectorStore（Qdrant upsert/search/delete）或连接池实现，设计细节和正确性属性 9/10/11/12/13/14/14a/14b 全部缺席。
-- **增量索引与元数据存储缺位（需求 5.1-5.5 和设计 5.1-5.3 未落地）**：代码库没有 IndexMetadataStore/SQLite、文件哈希对比、删除/更新旧 chunk 的逻辑，也没有变更检测或统计更新。当前仅在 `FileScanner` 计算 hash，后续无人使用，无法实现删除、增量添加或统计一致性。
-- **配置模型与设计规范不一致（需求 7.1/7.2/7.5 偏差）**：`src/aci/core/config.py:55` 定义的配置缺少设计文档要求的 `embedding_dimension`、`qdrant_api_key`/`ACI_QDRANT_API_KEY` 等敏感项映射，VectorStore 使用 `host/port` 而非设计的 `qdrant_url`。缺失字段会导致与外部依赖的配置串联失败，也无法满足环境变量覆盖敏感信息的要求。
-- **超长分块策略未实现设计中的语法友好拆分**：设计-detail 定义的 SmartChunkSplitter 应优先在空行/语句边界拆分并保留上下文。现有 `_split_oversized_node`（`src/aci/core/chunker.py:349`）只按逐行 token 计数硬切，未利用 AST、未加上下文前缀，无法满足正确性属性 7a（避免破坏语法结构）以及需求 2.5 的质量要求。
+**Date:** 2025-11-27
+**Project:** Augmented Codebase Indexer (ACI)
+
+## Executive Summary
+The codebase demonstrates a solid architectural foundation with clear separation of concerns (CLI, Service, Core, Infrastructure). The implementation largely adheres to the design specifications. Code quality is generally high with consistent use of type hinting, docstrings, and abstraction. However, there are specific performance concerns regarding parser initialization, some code duplication, and inconsistencies between documentation and implementation regarding concurrency models.
+
+## 1. Architectural Compliance
+- **Layered Architecture**: The project successfully implements the planned layered architecture. `Service` orchestration (e.g., `IndexingService`) correctly delegates to `Core` (e.g., `ASTParser`, `Chunker`) and `Infrastructure` (e.g., `VectorStore`) components.
+- **Dependency Inversion**: Abstract base classes (ABCs) are consistently used for core interfaces (`ASTParserInterface`, `VectorStoreInterface`), promoting testability and loose coupling.
+- **Design Alignment**: The implementation matches the design document (`.kiro/specs/codebase-semantic-search/design.md`). `Tree-sitter` and `Qdrant` are correctly integrated.
+
+## 2. Code Quality & Best Practices
+- **Type Safety**: Comprehensive use of Python type hints (`typing` module) across public interfaces and internal logic.
+- **Documentation**: High-quality docstrings are present for most classes and methods, explaining purpose, arguments, and return values.
+- **Error Handling**: Generally robust. Specific exceptions (e.g., `VectorStoreError`) are defined and used.
+- **Secrets Management**: No hardcoded secrets were found in the source code. API keys are passed via configuration/constructors.
+- **Testing**: The `tests/` directory structure mirrors the `src/` directory, suggesting high test coverage potential.
+
+## 3. Identified Issues & Recommendations
+
+### 3.1 Performance & Concurrency
+**Severity: High**
+- **Issue**: In `src/aci/services/indexing_service.py`, the `_process_file_worker` function instantiates a new `TreeSitterParser` (and `Chunker`) for *every single file* processed.
+  ```python
+  def _process_file_worker(...):
+      parser = TreeSitterParser()  # Re-initialized per file
+      chunker = create_chunker()
+      ...
+  ```
+  While `TreeSitterParser` uses lazy loading, creating a new Python instance and potentially checking library availability for thousands of files adds unnecessary overhead.
+- **Recommendation**: Refactor to initialize the parser once per worker process/thread, or use a global/singleton registry for parser instances within the worker context.
+
+- **Issue**: `IndexingService` documentation claims to use `ProcessPoolExecutor` for CPU-bound tasks, but the implementation explicitly uses `ThreadPoolExecutor`.
+  ```python
+  # Docstring
+  """...using ProcessPoolExecutor for CPU-intensive operations..."""
+
+  # Implementation
+  """Note: We use ThreadPoolExecutor instead of ProcessPoolExecutor because..."""
+  with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+  ```
+  While the comment explains *why* (serialization issues with tree-sitter), using threads for CPU-bound parsing in Python (subject to GIL) effectively serializes execution, negating the benefits of parallelism for large codebases.
+- **Recommendation**: Investigate if `ProcessPoolExecutor` can be used by initializing `tree-sitter` objects *inside* the worker process (after fork/spawn) rather than passing them. The current `_process_file_worker` already does this (creates parser inside), so `ProcessPoolExecutor` *should* actually work and provide true parallelism, unlike `ThreadPoolExecutor`. The rationale in the comment might be outdated or based on a misunderstanding if the parser is indeed created inside the worker.
+
+### 3.2 Code Duplication
+**Severity: Low**
+- **Issue**: In `src/aci/infrastructure/vector_store.py`, the methods `_search_with_sync_client` and `_query_with_sync_client` are identical copy-pastes.
+- **Recommendation**: Remove one and alias the other, or refactor to a single private method.
+
+### 3.3 Incomplete Features
+**Severity: Medium**
+- **Issue**: `QdrantVectorStore.search` contains a placeholder pass block for `file_filter`.
+  ```python
+  if file_filter:
+      # For glob patterns, we need to fetch more and filter client-side
+      pass
+  ```
+  While client-side filtering is implemented later in the loop, the pass block suggests missing logic (perhaps intended for server-side optimization).
+- **Recommendation**: Remove the confusing `pass` block or implement Qdrant-native filtering if applicable (though glob support in Qdrant is limited, prefix/keyword matching could be used for directory filtering).
+
+### 3.4 Environment Configuration
+**Severity: Medium**
+- **Issue**: The project contains a Windows-based virtual environment (`.venv/Scripts`) but is being run in a Linux environment. This prevents standard tools (`ruff`, `pytest`) from running out-of-the-box.
+- **Recommendation**: Add a setup script or `Makefile` to detect the OS and create the appropriate virtual environment. Add `.venv` to `.gitignore` to prevent checking in platform-specific environments.
+
+
+
+## 4. Automated Analysis Results
+
+
+
+### 4.1 Linter (Ruff)
+
+**Status: FAILED** (1378 errors)
+
+- **Major Issues**:
+
+  - Excessive whitespace (W291, W293)
+
+  - Line length violations > 100 chars (E501)
+
+  - Unused imports (F401)
+
+  - Import sorting issues (I001)
+
+- **Recommendation**: Run `ruff format .` and `ruff check --fix .` to automatically resolve the majority of these issues.
+
+
+
+### 4.2 Unit Tests (Pytest)
+
+**Status: FAILED** (156 passed, 7 failed)
+
+- **Failure 1: CLI Argument Mismatch**
+
+  - *Tests*: `test_index_help`, `test_update_help`, `test_status_help`
+
+  - *Error*: `AssertionError: assert '--config' in ...`
+
+  - *Cause*: The `--config` option is expected by tests but missing from the CLI help output.
+
+- **Failure 2: Missing Configuration Method**
+
+  - *Tests*: `test_config_yaml_round_trip`, `test_config_json_round_trip`, etc.
+
+  - *Error*: `AttributeError: type object 'ACIConfig' has no attribute 'from_file'`
+
+  - *Cause*: `ACIConfig` class lacks the `from_file` factory method that tests rely on.
+
+
+
+## 5. Conclusion
+
+The ACI project is well-structured and follows modern Python engineering standards. Addressing the concurrency implementation in `IndexingService` is the most critical step to ensure the tool meets its performance requirement of handling 100k+ lines of code efficiently. Additionally, immediate attention is needed to fix the broken configuration loading logic (`ACIConfig.from_file`) and synchronize the CLI implementation with its test suite.

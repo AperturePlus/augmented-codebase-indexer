@@ -5,7 +5,8 @@ Tests cover Python, JavaScript/TypeScript, and Go language parsing.
 """
 
 import pytest
-from aci.core.ast_parser import TreeSitterParser, ASTNode, SUPPORTED_LANGUAGES
+
+from aci.core.ast_parser import TreeSitterParser
 
 
 class TestTreeSitterParser:
@@ -75,7 +76,7 @@ class AnotherClass:
 
     def test_extract_methods_with_parent(self, parser):
         """Test extraction of methods with correct parent class."""
-        code = '''
+        code = """
 class MyClass:
     def __init__(self, value):
         self.value = value
@@ -85,7 +86,7 @@ class MyClass:
 
     def set_value(self, value):
         self.value = value
-'''
+"""
         nodes = parser.parse(code, "python")
         methods = [n for n in nodes if n.node_type == "method"]
 
@@ -117,12 +118,12 @@ class ClassWithDoc:
 
     def test_line_numbers_accuracy(self, parser):
         """Test that line numbers are accurate (1-based)."""
-        code = '''def first():
+        code = """def first():
     pass
 
 def second():
     pass
-'''
+"""
         nodes = parser.parse(code, "python")
 
         first = next(n for n in nodes if n.name == "first")
@@ -187,7 +188,7 @@ class TestJavaScriptParsing:
 
     def test_extract_function_declarations(self, parser):
         """Test extraction of JavaScript function declarations."""
-        code = '''
+        code = """
 function greet(name) {
     return "Hello, " + name;
 }
@@ -195,7 +196,7 @@ function greet(name) {
 function anotherFunction() {
     console.log("test");
 }
-'''
+"""
         nodes = parser.parse(code, "javascript")
         functions = [n for n in nodes if n.node_type == "function"]
 
@@ -205,7 +206,7 @@ function anotherFunction() {
 
     def test_extract_arrow_functions(self, parser):
         """Test extraction of arrow functions in variable declarations."""
-        code = '''
+        code = """
 const sayHi = () => {
     console.log("Hi!");
 };
@@ -213,7 +214,7 @@ const sayHi = () => {
 const arrowWithBody = (x, y) => {
     return x + y;
 };
-'''
+"""
         nodes = parser.parse(code, "javascript")
         functions = [n for n in nodes if n.node_type == "function"]
 
@@ -223,7 +224,7 @@ const arrowWithBody = (x, y) => {
 
     def test_extract_classes_and_methods(self, parser):
         """Test extraction of JavaScript classes and methods."""
-        code = '''
+        code = """
 class Greeter {
     constructor(name) {
         this.name = name;
@@ -237,7 +238,7 @@ class Greeter {
         return new Greeter(name);
     }
 }
-'''
+"""
         nodes = parser.parse(code, "javascript")
 
         classes = [n for n in nodes if n.node_type == "class"]
@@ -255,7 +256,7 @@ class Greeter {
 
     def test_typescript_parsing(self, parser):
         """Test TypeScript parsing (uses same parser as JavaScript)."""
-        code = '''
+        code = """
 function add(a, b) {
     return a + b;
 }
@@ -265,7 +266,7 @@ class Calculator {
         return a + b;
     }
 }
-'''
+"""
         nodes = parser.parse(code, "typescript")
 
         assert len(nodes) >= 3  # function, class, method
@@ -288,7 +289,7 @@ class TestGoParsing:
 
     def test_extract_functions(self, parser):
         """Test extraction of Go function declarations."""
-        code = '''
+        code = """
 package main
 
 func hello() {
@@ -298,7 +299,7 @@ func hello() {
 func add(a, b int) int {
     return a + b
 }
-'''
+"""
         nodes = parser.parse(code, "go")
         functions = [n for n in nodes if n.node_type == "function"]
 
@@ -308,7 +309,7 @@ func add(a, b int) int {
 
     def test_extract_structs(self, parser):
         """Test extraction of Go struct type declarations."""
-        code = '''
+        code = """
 package main
 
 type Greeter struct {
@@ -319,7 +320,7 @@ type Greeter struct {
 type Calculator struct {
     Value int
 }
-'''
+"""
         nodes = parser.parse(code, "go")
         # Structs are represented as 'class' for consistency
         structs = [n for n in nodes if n.node_type == "class"]
@@ -330,7 +331,7 @@ type Calculator struct {
 
     def test_extract_methods_with_receiver(self, parser):
         """Test extraction of Go methods with correct receiver type."""
-        code = '''
+        code = """
 package main
 
 type Greeter struct {
@@ -344,7 +345,7 @@ func (g *Greeter) Greet() string {
 func (g Greeter) GetName() string {
     return g.Name
 }
-'''
+"""
         nodes = parser.parse(code, "go")
         methods = [n for n in nodes if n.node_type == "method"]
 
@@ -358,7 +359,7 @@ func (g Greeter) GetName() string {
 
     def test_full_go_parsing(self, parser):
         """Comprehensive test for Go parsing."""
-        code = '''
+        code = """
 package main
 
 import "fmt"
@@ -391,7 +392,7 @@ type Calculator struct {
 func (c *Calculator) Add(x int) {
     c.Value += x
 }
-'''
+"""
         nodes = parser.parse(code, "go")
 
         functions = [n for n in nodes if n.node_type == "function"]

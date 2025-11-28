@@ -11,12 +11,9 @@ from aci.infrastructure.embedding_client import (
     RetryConfig,
     create_embedding_client,
 )
-from aci.infrastructure.vector_store import (
-    QdrantVectorStore,
-    SearchResult,
-    VectorStoreError,
-    VectorStoreInterface,
-    create_vector_store,
+from aci.infrastructure.fakes import (
+    InMemoryVectorStore,
+    LocalEmbeddingClient,
 )
 from aci.infrastructure.metadata_store import (
     IndexedFileInfo,
@@ -24,9 +21,12 @@ from aci.infrastructure.metadata_store import (
     MetadataStoreError,
     create_metadata_store,
 )
-from aci.infrastructure.fakes import (
-    InMemoryVectorStore,
-    LocalEmbeddingClient,
+from aci.infrastructure.vector_store import (
+    QdrantVectorStore,
+    SearchResult,
+    VectorStoreError,
+    VectorStoreInterface,
+    create_vector_store,
 )
 
 __all__ = [

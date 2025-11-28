@@ -12,38 +12,41 @@ import sys
 def check_tree_sitter_environment() -> bool:
     """
     Check Tree-sitter environment and report status.
-    
+
     Returns:
         True if all checks pass, False otherwise.
     """
     print("=" * 60)
     print("Tree-sitter Environment Check")
     print("=" * 60)
-    
+
     all_ok = True
-    
+
     # Check tree-sitter core
     print("\n[1] Checking tree-sitter core library...")
     try:
         import tree_sitter
-        print(f"    ✓ tree-sitter version: {tree_sitter.__version__ if hasattr(tree_sitter, '__version__') else 'installed'}")
+
+        print(
+            f"    ✓ tree-sitter version: {tree_sitter.__version__ if hasattr(tree_sitter, '__version__') else 'installed'}"
+        )
     except ImportError as e:
         print(f"    ✗ tree-sitter not installed: {e}")
         all_ok = False
-    
+
     # Check language packs
     language_packs = [
         ("tree_sitter_python", "Python"),
         ("tree_sitter_javascript", "JavaScript/TypeScript"),
         ("tree_sitter_go", "Go"),
     ]
-    
+
     print("\n[2] Checking language packs...")
     for module_name, display_name in language_packs:
         try:
             module = __import__(module_name)
             # Try to get the language function
-            if hasattr(module, 'language'):
+            if hasattr(module, "language"):
                 lang_ptr = module.language()
                 print(f"    ✓ {display_name} ({module_name}): loaded successfully")
             else:
@@ -55,12 +58,12 @@ def check_tree_sitter_environment() -> bool:
         except Exception as e:
             print(f"    ✗ {display_name} ({module_name}): error loading - {e}")
             all_ok = False
-    
+
     # Test parsing capability
     print("\n[3] Testing parsing capability...")
     try:
         from aci.core.ast_parser import TreeSitterParser, check_tree_sitter_setup
-        
+
         status = check_tree_sitter_setup()
         for lang, available in status.items():
             if available:
@@ -68,20 +71,21 @@ def check_tree_sitter_environment() -> bool:
             else:
                 print(f"    ✗ {lang}: parser not available")
                 all_ok = False
-                
+
     except ImportError as e:
         print(f"    ✗ Could not import ACI parser module: {e}")
         all_ok = False
     except Exception as e:
         print(f"    ✗ Error testing parser: {e}")
         all_ok = False
-    
+
     # Test actual parsing
     print("\n[4] Testing actual code parsing...")
     try:
         from aci.core.ast_parser import TreeSitterParser
+
         parser = TreeSitterParser()
-        
+
         # Test Python
         python_code = '''
 def hello():
@@ -97,9 +101,9 @@ class Greeter:
             print(f"    ✓ Python parsing: found {len(nodes)} nodes")
         else:
             print(f"    ? Python parsing: found {len(nodes)} nodes (expected >= 3)")
-        
+
         # Test JavaScript
-        js_code = '''
+        js_code = """
 function greet(name) {
     return "Hello, " + name;
 }
@@ -117,15 +121,15 @@ class Greeter {
         return "Hello, " + this.name;
     }
 }
-'''
+"""
         nodes = parser.parse(js_code, "javascript")
         if len(nodes) >= 4:  # function, arrow function, class, methods
             print(f"    ✓ JavaScript parsing: found {len(nodes)} nodes")
         else:
             print(f"    ? JavaScript parsing: found {len(nodes)} nodes (expected >= 4)")
-        
+
         # Test Go
-        go_code = '''
+        go_code = """
 package main
 
 func hello() {
@@ -139,17 +143,17 @@ type Greeter struct {
 func (g *Greeter) Greet() string {
     return "Hello, " + g.Name
 }
-'''
+"""
         nodes = parser.parse(go_code, "go")
         if len(nodes) >= 3:  # function, struct, method
             print(f"    ✓ Go parsing: found {len(nodes)} nodes")
         else:
             print(f"    ? Go parsing: found {len(nodes)} nodes (expected >= 3)")
-            
+
     except Exception as e:
         print(f"    ✗ Error during parsing test: {e}")
         all_ok = False
-    
+
     # Summary
     print("\n" + "=" * 60)
     if all_ok:
@@ -159,7 +163,7 @@ func (g *Greeter) Greet() string {
         print("\nTo install missing packages, run:")
         print("  uv add tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-go")
     print("=" * 60)
-    
+
     return all_ok
 
 

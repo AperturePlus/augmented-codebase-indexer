@@ -2,10 +2,9 @@
 Tests for the Tokenizer module.
 """
 
-import pytest
 from aci.core.tokenizer import (
-    TokenizerInterface,
     TiktokenTokenizer,
+    TokenizerInterface,
     get_default_tokenizer,
 )
 
@@ -62,13 +61,13 @@ class TestTiktokenTokenizer:
         """Truncation should not cut in the middle of a line."""
         tokenizer = TiktokenTokenizer()
         text = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
-        
+
         # Get a max_tokens that will require truncation
         total_tokens = tokenizer.count_tokens(text)
         max_tokens = total_tokens // 2
-        
+
         result = tokenizer.truncate_to_tokens(text, max_tokens)
-        
+
         # Result should end with a complete line (no partial lines)
         assert result.endswith("Line 1") or result.endswith("Line 2") or result.endswith("Line 3")
         # Result should not contain partial text
@@ -80,10 +79,10 @@ class TestTiktokenTokenizer:
         tokenizer = TiktokenTokenizer()
         text = "\n".join([f"This is line number {i} with some content" for i in range(100)])
         max_tokens = 50
-        
+
         result = tokenizer.truncate_to_tokens(text, max_tokens)
         result_tokens = tokenizer.count_tokens(result)
-        
+
         assert result_tokens <= max_tokens
 
     def test_truncate_multiline_code(self):
@@ -104,7 +103,7 @@ def function_three():
         # Use a small token limit
         max_tokens = 20
         result = tokenizer.truncate_to_tokens(code, max_tokens)
-        
+
         # Should not exceed limit
         assert tokenizer.count_tokens(result) <= max_tokens
         # Should contain complete lines only

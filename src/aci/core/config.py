@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -26,22 +27,21 @@ _defaults_cache: dict[str, Any] | None = None
 def _load_defaults() -> dict[str, Any]:
     """Load default configuration values from defaults.yaml."""
     global _defaults_cache
-    
+
     if _defaults_cache is not None:
         return _defaults_cache
-    
+
     if not _DEFAULTS_CONFIG_PATH.exists():
-        logger.warning(f"Defaults config not found: {_DEFAULTS_CONFIG_PATH}")
         _defaults_cache = {}
         return _defaults_cache
-    
+
     try:
         content = _DEFAULTS_CONFIG_PATH.read_text(encoding="utf-8")
         _defaults_cache = yaml.safe_load(content) or {}
     except yaml.YAMLError as e:
         logger.error(f"Failed to parse defaults config: {e}")
         _defaults_cache = {}
-    
+
     return _defaults_cache
 
 
@@ -68,6 +68,7 @@ class EmbeddingConfig:
     batch_size: int = field(default_factory=lambda: _get_default("embedding", "batch_size", 100))
     max_retries: int = field(default_factory=lambda: _get_default("embedding", "max_retries", 3))
     timeout: float = field(default_factory=lambda: _get_default("embedding", "timeout", 30.0))
+    dimension: int = field(default_factory=lambda: _get_default("embedding", "dimension", 1536))
 
 
 @dataclass
@@ -125,14 +126,24 @@ class IndexingConfig:
 class SearchConfig:
     """Configuration for the search service."""
 
-    default_limit: int = field(
-        default_factory=lambda: _get_default("search", "default_limit", 10)
-    )
+    default_limit: int = field(default_factory=lambda: _get_default("search", "default_limit", 10))
     use_rerank: bool = field(default_factory=lambda: _get_default("search", "use_rerank", False))
     rerank_model: str = field(
         default_factory=lambda: _get_default(
             "search", "rerank_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
+    )
+    rerank_api_url: str = field(
+        default_factory=lambda: _get_default("search", "rerank_api_url", "")
+    )
+    rerank_api_key: str = field(
+        default_factory=lambda: _get_default("search", "rerank_api_key", "")
+    )
+    rerank_timeout: float = field(
+        default_factory=lambda: _get_default("search", "rerank_timeout", 30.0)
+    )
+    rerank_endpoint: str = field(
+        default_factory=lambda: _get_default("search", "rerank_endpoint", "/v1/rerank")
     )
 
 
@@ -158,54 +169,6 @@ class ACIConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
-    @classmethod
-    def from_file(cls, path: Path | str) -> "ACIConfig":
-        """
-        Load configuration from a YAML or JSON file.
-
-        Args:
-            path: Path to the configuration file (.yaml, .yml, or .json)
-
-        Returns:
-            ACIConfig instance with loaded values
-
-        Raises:
-            FileNotFoundError: If the config file doesn't exist
-            ValueError: If the file format is unsupported
-        """
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {path}")
-
-        content = path.read_text(encoding="utf-8")
-
-        if path.suffix in (".yaml", ".yml"):
-            data = yaml.safe_load(content) or {}
-        elif path.suffix == ".json":
-            data = json.loads(content) if content.strip() else {}
-        else:
-            raise ValueError(f"Unsupported config file format: {path.suffix}")
-
-        return cls._from_dict(data)
-
-    @classmethod
-    def _from_dict(cls, data: dict) -> "ACIConfig":
-        """Create ACIConfig from a dictionary."""
-        config = cls()
-
-        if "embedding" in data:
-            config.embedding = EmbeddingConfig(**data["embedding"])
-        if "vector_store" in data:
-            config.vector_store = VectorStoreConfig(**data["vector_store"])
-        if "indexing" in data:
-            config.indexing = IndexingConfig(**data["indexing"])
-        if "search" in data:
-            config.search = SearchConfig(**data["search"])
-        if "logging" in data:
-            config.logging = LoggingConfig(**data["logging"])
-
-        return config
-
     def apply_env_overrides(self) -> "ACIConfig":
         """
         Apply environment variable overrides to the configuration.
@@ -229,6 +192,7 @@ class ACIConfig:
             "ACI_EMBEDDING_BATCH_SIZE": ("embedding", "batch_size", int),
             "ACI_EMBEDDING_MAX_RETRIES": ("embedding", "max_retries", int),
             "ACI_EMBEDDING_TIMEOUT": ("embedding", "timeout", float),
+            "ACI_EMBEDDING_DIMENSION": ("embedding", "dimension", int),
             # Vector store config
             "ACI_VECTOR_STORE_HOST": ("vector_store", "host", str),
             "ACI_VECTOR_STORE_PORT": ("vector_store", "port", int),
@@ -238,10 +202,24 @@ class ACIConfig:
             "ACI_INDEXING_MAX_CHUNK_TOKENS": ("indexing", "max_chunk_tokens", int),
             "ACI_INDEXING_CHUNK_OVERLAP_LINES": ("indexing", "chunk_overlap_lines", int),
             "ACI_INDEXING_MAX_WORKERS": ("indexing", "max_workers", int),
+            "ACI_INDEXING_FILE_EXTENSIONS": (
+                "indexing",
+                "file_extensions",
+                lambda v: [s.strip() for s in v.split(",") if s.strip()],
+            ),
+            "ACI_INDEXING_IGNORE_PATTERNS": (
+                "indexing",
+                "ignore_patterns",
+                lambda v: [s.strip() for s in v.split(",") if s.strip()],
+            ),
             # Search config
             "ACI_SEARCH_DEFAULT_LIMIT": ("search", "default_limit", int),
             "ACI_SEARCH_USE_RERANK": ("search", "use_rerank", _parse_bool),
             "ACI_SEARCH_RERANK_MODEL": ("search", "rerank_model", str),
+            "ACI_SEARCH_RERANK_API_URL": ("search", "rerank_api_url", str),
+            "ACI_SEARCH_RERANK_API_KEY": ("search", "rerank_api_key", str),
+            "ACI_SEARCH_RERANK_TIMEOUT": ("search", "rerank_timeout", float),
+            "ACI_SEARCH_RERANK_ENDPOINT": ("search", "rerank_endpoint", str),
             # Logging config
             "ACI_LOGGING_LEVEL": ("logging", "level", str),
         }
@@ -253,6 +231,51 @@ class ACIConfig:
                 setattr(section_obj, key, converter(value))
 
         return self
+
+    @classmethod
+    def from_file(cls, path: Path | str) -> "ACIConfig":
+        """
+        Load configuration from a YAML or JSON file.
+
+        Args:
+            path: Path to the configuration file
+
+        Returns:
+            ACIConfig instance populated from the file
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        content = path.read_text(encoding="utf-8")
+        data = {}
+
+        try:
+            if path.suffix in (".yaml", ".yml"):
+                data = yaml.safe_load(content) or {}
+            elif path.suffix == ".json":
+                data = json.loads(content)
+            else:
+                raise ValueError(f"Unsupported config file format: {path.suffix}")
+        except Exception as e:
+            raise ValueError(f"Failed to parse config file {path}: {e}")
+
+        # Helper to safely create nested config objects
+        def create_subconfig(config_cls, section_data):
+            if not isinstance(section_data, dict):
+                return config_cls()
+            # Filter out unknown keys to prevent TypeError
+            valid_keys = config_cls.__dataclass_fields__.keys()
+            filtered_data = {k: v for k, v in section_data.items() if k in valid_keys}
+            return config_cls(**filtered_data)
+
+        return cls(
+            embedding=create_subconfig(EmbeddingConfig, data.get("embedding", {})),
+            vector_store=create_subconfig(VectorStoreConfig, data.get("vector_store", {})),
+            indexing=create_subconfig(IndexingConfig, data.get("indexing", {})),
+            search=create_subconfig(SearchConfig, data.get("search", {})),
+            logging=create_subconfig(LoggingConfig, data.get("logging", {})),
+        )
 
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
@@ -296,15 +319,23 @@ def _parse_bool(value: str) -> bool:
 
 def load_config(config_path: Optional[Path | str] = None, apply_env: bool = True) -> ACIConfig:
     """
-    Load configuration with optional environment variable overrides.
+    Load configuration from a file (optional) and environment variables.
 
     Args:
-        config_path: Optional path to config file. If None, uses defaults.
-        apply_env: Whether to apply environment variable overrides.
+        config_path: Path to YAML/JSON configuration file.
+        apply_env: Whether to apply environment variable overrides (and .env).
 
     Returns:
         ACIConfig instance
+
+    Notes:
+        - Automatically loads a local .env file if present (python-dotenv).
+        - Priority: Environment Variables > Config File > Defaults
+        - Raises ValueError if required keys (e.g., embedding.api_key) remain empty.
     """
+    # Load .env early so os.environ picks it up
+    load_dotenv()
+
     if config_path:
         config = ACIConfig.from_file(config_path)
     else:
@@ -312,5 +343,26 @@ def load_config(config_path: Optional[Path | str] = None, apply_env: bool = True
 
     if apply_env:
         config.apply_env_overrides()
+
+    # Validate required settings
+    if not config.embedding.api_key:
+        raise ValueError(
+            "Missing embedding API key. Set ACI_EMBEDDING_API_KEY in .env or environment."
+        )
+    if (
+        config.search.use_rerank
+        and config.search.rerank_api_url
+        and not config.search.rerank_api_key
+    ):
+        raise ValueError(
+            "Rerank is enabled but ACI_SEARCH_RERANK_API_KEY is missing. "
+            "Set it in .env/environment, or disable use_rerank."
+        )
+    if config.embedding.dimension != config.vector_store.vector_size:
+        raise ValueError(
+            f"Embedding dimension ({config.embedding.dimension}) must match "
+            f"vector store size ({config.vector_store.vector_size}). "
+            "Set ACI_EMBEDDING_DIMENSION and ACI_VECTOR_STORE_VECTOR_SIZE to the same value."
+        )
 
     return config

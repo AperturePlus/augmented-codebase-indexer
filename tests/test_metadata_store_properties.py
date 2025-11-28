@@ -9,11 +9,10 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from aci.infrastructure.metadata_store import IndexMetadataStore, IndexedFileInfo
-
+from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 
 # Strategies for generating test data
 file_path_strategy = st.text(
@@ -39,7 +38,7 @@ modified_time_strategy = st.floats(min_value=0, max_value=2000000000, allow_nan=
 def indexed_file_info_strategy(draw, days_ago: int = 0):
     """Generate a valid IndexedFileInfo."""
     indexed_at = datetime.now() - timedelta(days=days_ago)
-    
+
     return IndexedFileInfo(
         file_path=draw(file_path_strategy),
         content_hash=draw(content_hash_strategy),
@@ -61,14 +60,14 @@ def test_metadata_round_trip(file_info: IndexedFileInfo):
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         store = IndexMetadataStore(db_path)
-        
+
         try:
             # Store the file info
             store.upsert_file(file_info)
-            
+
             # Retrieve it
             result = store.get_file_info(file_info.file_path)
-            
+
             # Verify round-trip
             assert result is not None
             assert result.file_path == file_info.file_path
@@ -90,14 +89,14 @@ def test_get_files_older_than(old_days: int, query_days: int):
     """
     **Feature: codebase-semantic-search, Property 18a: Metadata Query Correctness**
     **Validates: Requirements 5.5**
-    
+
     *For any* call to get_files_older_than(days), all returned files
     should have indexed_at earlier than (now - days).
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         store = IndexMetadataStore(db_path)
-        
+
         try:
             # Create old files (should be returned)
             old_file = IndexedFileInfo(
@@ -110,7 +109,7 @@ def test_get_files_older_than(old_days: int, query_days: int):
                 modified_time=1000.0,
             )
             store.upsert_file(old_file)
-            
+
             # Create recent files (should NOT be returned)
             recent_file = IndexedFileInfo(
                 file_path="recent/file.py",
@@ -122,24 +121,23 @@ def test_get_files_older_than(old_days: int, query_days: int):
                 modified_time=2000.0,
             )
             store.upsert_file(recent_file)
-            
+
             # Query for files older than query_days
             old_files = store.get_files_older_than(query_days)
-            
+
             # Old file should be in results (old_days > query_days)
             assert "old/file.py" in old_files
-            
+
             # Recent file should NOT be in results
             assert "recent/file.py" not in old_files
-            
+
             # Verify all returned files are actually old
             cutoff = datetime.now() - timedelta(days=query_days)
             for file_path in old_files:
                 info = store.get_file_info(file_path)
                 assert info is not None
                 assert info.indexed_at < cutoff, (
-                    f"File {file_path} indexed at {info.indexed_at} "
-                    f"is not older than {cutoff}"
+                    f"File {file_path} indexed at {info.indexed_at} is not older than {cutoff}"
                 )
         finally:
             store.close()
@@ -162,15 +160,15 @@ def test_get_all_file_hashes(files: list[IndexedFileInfo]):
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         store = IndexMetadataStore(db_path)
-        
+
         try:
             # Store all files
             for file_info in files:
                 store.upsert_file(file_info)
-            
+
             # Get all hashes
             hashes = store.get_all_file_hashes()
-            
+
             # Verify all files are present with correct hashes
             assert len(hashes) == len(files)
             for file_info in files:
@@ -197,29 +195,29 @@ def test_stats_consistency(files: list[IndexedFileInfo]):
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         store = IndexMetadataStore(db_path)
-        
+
         try:
             # Store all files
             for file_info in files:
                 store.upsert_file(file_info)
-            
+
             # Get stats
             stats = store.get_stats()
-            
+
             # Verify totals
             expected_files = len(files)
             expected_chunks = sum(f.chunk_count for f in files)
             expected_lines = sum(f.line_count for f in files)
-            
+
             assert stats["total_files"] == expected_files
             assert stats["total_chunks"] == expected_chunks
             assert stats["total_lines"] == expected_lines
-            
+
             # Verify language breakdown
             language_counts = {}
             for f in files:
                 language_counts[f.language] = language_counts.get(f.language, 0) + 1
-            
+
             assert stats["languages"] == language_counts
         finally:
             store.close()
@@ -235,21 +233,21 @@ def test_delete_file(file_info: IndexedFileInfo):
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         store = IndexMetadataStore(db_path)
-        
+
         try:
             # Store the file
             store.upsert_file(file_info)
-            
+
             # Verify it exists
             assert store.get_file_info(file_info.file_path) is not None
-            
+
             # Delete it
             deleted = store.delete_file(file_info.file_path)
             assert deleted is True
-            
+
             # Verify it's gone
             assert store.get_file_info(file_info.file_path) is None
-            
+
             # Delete again should return False
             deleted_again = store.delete_file(file_info.file_path)
             assert deleted_again is False
