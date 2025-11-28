@@ -300,38 +300,197 @@ def update(
 
 
 @app.command()
+
+
 def reset():
+
+
     """Clear vector store collection and metadata."""
+
+
     typer.echo("Resetting index (vector store collection + metadata)...")
+
+
     try:
+
+
         (
+
+
             cfg,
+
+
             embedding_client,
+
+
             vector_store,
+
+
             metadata_store,
+
+
             file_scanner,
+
+
             chunker,
+
+
             reranker,
+
+
         ) = get_services()
 
+
+
+
+
         # Reset vector store if supported
+
+
         if hasattr(vector_store, "reset"):
+
+
             asyncio.run(vector_store.reset())
+
+
             typer.echo("Vector store collection reset.")
+
+
         else:
+
+
             typer.echo("Vector store does not support reset; skipping.", err=True)
 
+
+
+
+
         # Clear metadata
+
+
         metadata_store.clear_all()
+
+
         typer.echo("Metadata store cleared.")
 
+
+
+
+
     except Exception as e:
+
+
         typer.echo(f"Error: {e}", err=True)
+
+
         raise typer.Exit(1)
 
 
+
+
+
+
+
+
+@app.command("list")
+
+
+def list_repos():
+
+
+    """List all indexed repositories."""
+
+
+    try:
+
+
+        (
+
+
+            cfg,
+
+
+            embedding_client,
+
+
+            vector_store,
+
+
+            metadata_store,
+
+
+            file_scanner,
+
+
+            chunker,
+
+
+            reranker,
+
+
+        ) = get_services()
+
+
+        
+
+
+        repos = metadata_store.get_repositories()
+
+
+        
+
+
+        if not repos:
+
+
+            typer.echo("No repositories indexed.")
+
+
+            return
+
+
+            
+
+
+        typer.echo(f"Indexed Repositories ({len(repos)}):")
+
+
+        for repo in repos:
+
+
+            typer.echo(f"  - {repo['root_path']}")
+
+
+            typer.echo(f"    Updated: {repo['updated_at']}")
+
+
+            
+
+
+    except Exception as e:
+
+
+        typer.echo(f"Error: {e}", err=True)
+
+
+        raise typer.Exit(1)
+
+
+
+
+
+
+
+
 @app.command()
-def status():
+
+
+def status(
+
+
+):
+
+
     """Show index status, statistics, and health information."""
     try:
         (

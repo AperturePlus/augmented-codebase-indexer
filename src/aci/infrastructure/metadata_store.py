@@ -401,6 +401,44 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to set index info: {e}") from e
 
+    def register_repository(self, root_path: str) -> None:
+        """
+        Register or update a repository root path.
+        
+        Uses the root_path itself as the unique index_id.
+        """
+        self.set_index_info(index_id=root_path, root_path=root_path)
+
+    def get_repositories(self) -> List[Dict]:
+        """
+        Get all registered repositories.
+        
+        Returns:
+            List of dicts with keys: root_path, created_at, updated_at
+        """
+        self.initialize()
+        conn = self._get_connection()
+
+        try:
+            cursor = conn.execute(
+                """
+                SELECT root_path, created_at, updated_at
+                FROM index_info
+                ORDER BY updated_at DESC
+                """
+            )
+            return [
+                {
+                    "root_path": row["root_path"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in cursor.fetchall()
+            ]
+
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to get repositories: {e}") from e
+
     def get_index_info(self, index_id: str) -> Optional[Dict]:
         """Get index metadata."""
         self.initialize()

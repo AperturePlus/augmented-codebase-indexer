@@ -219,6 +219,10 @@ class IndexingService:
         """
         start_time = time.time()
         result = IndexingResult()
+        
+        # Register repository
+        abs_root = str(root_path.resolve())
+        self._metadata_store.register_repository(abs_root)
 
         # Scan files
         self._report_progress(0, 0, "Scanning files...")
@@ -488,6 +492,10 @@ class IndexingService:
         """
         start_time = time.time()
         result = IndexingResult()
+        
+        # Register/update repository timestamp
+        abs_root = str(root_path.resolve())
+        self._metadata_store.register_repository(abs_root)
 
         # Get current file hashes from metadata store
         self._report_progress(0, 0, "Loading existing index metadata...")
