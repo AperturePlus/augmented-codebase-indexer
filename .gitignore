@@ -3,4 +3,4 @@
 .venv/
 *__pycache__*/
 uv.lock
-.pytest_cache/
+.pytest_cache/.venv-wsl/
