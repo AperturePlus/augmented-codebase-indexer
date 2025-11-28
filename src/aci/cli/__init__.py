@@ -10,6 +10,17 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
+from rich.syntax import Syntax
+from rich.table import Table
 
 from aci.core.chunker import create_chunker
 from aci.core.config import load_config
@@ -27,40 +38,14 @@ from aci.services.reranker import (
     SimpleReranker,
 )
 
+# Initialize Rich Console
+console = Console()
+
 app = typer.Typer(
     name="aci",
     help="Augmented Codebase Indexer - Semantic code search",
     add_completion=False,
 )
-
-
-class ProgressReporter:
-    """Progress reporter with ETA calculation."""
-
-    def __init__(self, echo_func=typer.echo):
-        self._start_time: Optional[float] = None
-        self._echo = echo_func
-
-    def __call__(self, current: int, total: int, message: str) -> None:
-        """Report progress with ETA."""
-        if self._start_time is None:
-            self._start_time = time.time()
-
-        if total > 0 and current > 0:
-            elapsed = time.time() - self._start_time
-            rate = current / elapsed if elapsed > 0 else 0
-            remaining = total - current
-            eta_seconds = remaining / rate if rate > 0 else 0
-
-            if eta_seconds > 60:
-                eta_str = f"ETA: {eta_seconds / 60:.1f}m"
-            else:
-                eta_str = f"ETA: {eta_seconds:.0f}s"
-
-            self._echo(f"  [{current}/{total}] {message} ({eta_str})")
-        else:
-            self._echo(f"  [{current}/{total}] {message}")
-
 
 def get_services():
     """Initialize services from .env with config-driven settings."""
@@ -134,7 +119,7 @@ def index(
     ),
 ):
     """Index a directory for semantic search."""
-    typer.echo(f"Indexing {path}...")
+    console.print(f"[bold blue]Indexing[/bold blue] {path}...")
 
     try:
         (
@@ -150,31 +135,61 @@ def index(
         # Use config workers if not overridden by CLI
         actual_workers = workers if workers is not None else cfg.indexing.max_workers
 
-        indexing_service = IndexingService(
-            embedding_client=embedding_client,
-            vector_store=vector_store,
-            metadata_store=metadata_store,
-            file_scanner=file_scanner,
-            chunker=chunker,
-            max_workers=actual_workers,
-            batch_size=cfg.embedding.batch_size,
-            progress_callback=ProgressReporter(),
+        # Progress reporting with Rich
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Initializing...", total=None)
+
+            def update_progress(current: int, total: int, message: str) -> None:
+                progress.update(task, completed=current, total=total, description=message)
+
+            indexing_service = IndexingService(
+                embedding_client=embedding_client,
+                vector_store=vector_store,
+                metadata_store=metadata_store,
+                file_scanner=file_scanner,
+                chunker=chunker,
+                max_workers=actual_workers,
+                batch_size=cfg.embedding.batch_size,
+                progress_callback=update_progress,
+            )
+
+            result = asyncio.run(indexing_service.index_directory(path))
+
+        # Summary Panel
+        summary = Table.grid(padding=1)
+        summary.add_column(style="bold")
+        summary.add_column()
+        summary.add_row("Total Files:", str(result.total_files))
+        summary.add_row("Total Chunks:", str(result.total_chunks))
+        summary.add_row("Duration:", f"{result.duration_seconds:.2f}s")
+        
+        if result.failed_files:
+            summary.add_row("Failed Files:", f"[red]{len(result.failed_files)}[/red]")
+
+        console.print(
+            Panel(
+                summary,
+                title="[bold green]Indexing Complete[/bold green]",
+                border_style="green",
+                expand=False,
+            )
         )
 
-        result = asyncio.run(indexing_service.index_directory(path))
-
-        typer.echo("\nIndexing complete:")
-        typer.echo(f"  Files: {result.total_files}")
-        typer.echo(f"  Chunks: {result.total_chunks}")
-        typer.echo(f"  Duration: {result.duration_seconds:.2f}s")
-
         if result.failed_files:
-            typer.echo(f"  Failed: {len(result.failed_files)}")
+            console.print("\n[bold red]Failed Files:[/bold red]")
             for f in result.failed_files[:5]:
-                typer.echo(f"    - {f}")
+                console.print(f"  - {f}")
+            if len(result.failed_files) > 5:
+                console.print(f"  ... and {len(result.failed_files) - 5} more")
 
     except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
@@ -211,9 +226,8 @@ def search(
 
         reranker = config_reranker if use_rerank else None
         if use_rerank and reranker is None:
-            typer.echo(
-                "Warning: rerank requested but no reranker available; continuing without rerank",
-                err=True,
+            console.print(
+                "[yellow]Warning: rerank requested but no reranker available; continuing without rerank[/yellow]"
             )
             use_rerank = False
 
@@ -224,36 +238,56 @@ def search(
             default_limit=actual_limit,
         )
 
-        results = asyncio.run(
-            search_service.search(
-                query=query,
-                limit=actual_limit,
-                file_filter=file_filter,
-                use_rerank=use_rerank and reranker is not None,
+        with console.status(f"[bold blue]Searching for[/bold blue] '{query}'..."):
+            results = asyncio.run(
+                search_service.search(
+                    query=query,
+                    limit=actual_limit,
+                    file_filter=file_filter,
+                    use_rerank=use_rerank and reranker is not None,
+                )
             )
-        )
 
         if not results:
-            typer.echo("No results found.")
+            console.print("[yellow]No results found.[/yellow]")
             return
 
-        typer.echo(f"Found {len(results)} results:\n")
+        console.print(f"\nFound [bold]{len(results)}[/bold] results:\n")
 
         for i, result in enumerate(results, 1):
-            typer.echo(
-                f"{i}. {result.file_path}:{result.start_line}-{result.end_line} (score: {result.score:.3f})"
-            )
-            lines = result.content.split("\n")
+            # Highlight code syntax
+            language = result.metadata.get("language", "text")
+            # Mapping basic names to rich syntax lexers if needed, usually auto-detected
+            
             if verbose:
-                for line in lines:
-                    typer.echo(f"   {line}")
+                code_content = result.content
             else:
-                for line in lines[:snippet_lines]:
-                    typer.echo(f"   {line[:120]}")
-            typer.echo()
+                lines = result.content.split("\n")
+                code_content = "\n".join(lines[:snippet_lines])
+                if len(lines) > snippet_lines:
+                    code_content += "\n..."
+
+            syntax = Syntax(
+                code_content,
+                language,
+                theme="monokai",
+                line_numbers=True,
+                start_line=result.start_line,
+                word_wrap=True,
+            )
+
+            panel = Panel(
+                syntax,
+                title=f"[bold blue]{i}. {result.file_path}[/bold blue] : {result.start_line}-{result.end_line}",
+                subtitle=f"Score: [yellow]{result.score:.3f}[/yellow]",
+                border_style="blue",
+                expand=True,
+            )
+            console.print(panel)
+            console.print()  # spacing
 
     except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
@@ -262,7 +296,7 @@ def update(
     path: Path = typer.Argument(..., help="Directory to update"),
 ):
     """Incrementally update the index."""
-    typer.echo(f"Updating index for {path}...")
+    console.print(f"[bold blue]Updating index for[/bold blue] {path}...")
 
     try:
         (
@@ -275,222 +309,127 @@ def update(
             reranker,
         ) = get_services()
 
-        indexing_service = IndexingService(
-            embedding_client=embedding_client,
-            vector_store=vector_store,
-            metadata_store=metadata_store,
-            file_scanner=file_scanner,
-            chunker=chunker,
-            max_workers=cfg.indexing.max_workers,
-            batch_size=cfg.embedding.batch_size,
-            progress_callback=ProgressReporter(),
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Scanning...", total=None)
+
+            def update_progress(current: int, total: int, message: str) -> None:
+                progress.update(task, completed=current, total=total, description=message)
+
+            indexing_service = IndexingService(
+                embedding_client=embedding_client,
+                vector_store=vector_store,
+                metadata_store=metadata_store,
+                file_scanner=file_scanner,
+                chunker=chunker,
+                max_workers=cfg.indexing.max_workers,
+                batch_size=cfg.embedding.batch_size,
+                progress_callback=update_progress,
+            )
+
+            result = asyncio.run(indexing_service.update_incremental(path))
+
+        # Summary Panel
+        summary = Table.grid(padding=1)
+        summary.add_column(style="bold")
+        summary.add_column()
+        summary.add_row("New Files:", f"[green]{result.new_files}[/green]")
+        summary.add_row("Modified Files:", f"[yellow]{result.modified_files}[/yellow]")
+        summary.add_row("Deleted Files:", f"[red]{result.deleted_files}[/red]")
+        summary.add_row("Duration:", f"{result.duration_seconds:.2f}s")
+
+        console.print(
+            Panel(
+                summary,
+                title="[bold green]Update Complete[/bold green]",
+                border_style="green",
+                expand=False,
+            )
         )
 
-        result = asyncio.run(indexing_service.update_incremental(path))
-
-        typer.echo("\nUpdate complete:")
-        typer.echo(f"  New files: {result.new_files}")
-        typer.echo(f"  Modified: {result.modified_files}")
-        typer.echo(f"  Deleted: {result.deleted_files}")
-        typer.echo(f"  Duration: {result.duration_seconds:.2f}s")
-
     except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
 @app.command()
-
-
 def reset():
-
-
     """Clear vector store collection and metadata."""
+    if not typer.confirm("Are you sure you want to reset the index? This will delete all data."):
+        raise typer.Abort()
 
-
-    typer.echo("Resetting index (vector store collection + metadata)...")
-
-
+    console.print("[bold yellow]Resetting index (vector store collection + metadata)...[/bold yellow]")
     try:
-
-
         (
-
-
             cfg,
-
-
             embedding_client,
-
-
             vector_store,
-
-
             metadata_store,
-
-
             file_scanner,
-
-
             chunker,
-
-
             reranker,
-
-
         ) = get_services()
 
-
-
-
-
         # Reset vector store if supported
-
-
         if hasattr(vector_store, "reset"):
-
-
             asyncio.run(vector_store.reset())
-
-
-            typer.echo("Vector store collection reset.")
-
-
+            console.print("  [green]✓[/green] Vector store collection reset.")
         else:
-
-
-            typer.echo("Vector store does not support reset; skipping.", err=True)
-
-
-
-
+            console.print("  [yellow]![/yellow] Vector store does not support reset; skipping.")
 
         # Clear metadata
-
-
         metadata_store.clear_all()
-
-
-        typer.echo("Metadata store cleared.")
-
-
-
-
+        console.print("  [green]✓[/green] Metadata store cleared.")
+        
+        console.print("[bold green]Reset complete.[/bold green]")
 
     except Exception as e:
-
-
-        typer.echo(f"Error: {e}", err=True)
-
-
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
-
-
-
-
-
-
 
 
 @app.command("list")
-
-
 def list_repos():
-
-
     """List all indexed repositories."""
-
-
     try:
-
-
         (
-
-
             cfg,
-
-
             embedding_client,
-
-
             vector_store,
-
-
             metadata_store,
-
-
             file_scanner,
-
-
             chunker,
-
-
             reranker,
-
-
         ) = get_services()
-
-
-        
-
 
         repos = metadata_store.get_repositories()
 
-
-        
-
-
         if not repos:
-
-
-            typer.echo("No repositories indexed.")
-
-
+            console.print("[yellow]No repositories indexed.[/yellow]")
             return
 
-
-            
-
-
-        typer.echo(f"Indexed Repositories ({len(repos)}):")
-
+        table = Table(title="Indexed Repositories", border_style="blue")
+        table.add_column("Root Path", style="cyan", no_wrap=True)
+        table.add_column("Last Updated", style="magenta")
 
         for repo in repos:
+            table.add_row(repo["root_path"], str(repo["updated_at"]))
 
-
-            typer.echo(f"  - {repo['root_path']}")
-
-
-            typer.echo(f"    Updated: {repo['updated_at']}")
-
-
-            
-
+        console.print(table)
 
     except Exception as e:
-
-
-        typer.echo(f"Error: {e}", err=True)
-
-
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
-
-
-
-
-
-
 @app.command()
-
-
 def status(
-
-
 ):
-
-
     """Show index status, statistics, and health information."""
     try:
         (
@@ -506,38 +445,50 @@ def status(
         # Get metadata stats
         stats = metadata_store.get_stats()
 
-        typer.echo("Index Status:")
-        typer.echo(f"  Total files: {stats['total_files']}")
-        typer.echo(f"  Total chunks: {stats['total_chunks']}")
-        typer.echo(f"  Total lines: {stats['total_lines']}")
+        # Status Grid
+        grid = Table.grid(padding=1)
+        grid.add_column(style="bold")
+        grid.add_column()
+        
+        grid.add_row("Total Files:", str(stats["total_files"]))
+        grid.add_row("Total Chunks:", str(stats["total_chunks"]))
+        grid.add_row("Total Lines:", str(stats["total_lines"]))
+        
+        console.print(Panel(grid, title="Index Statistics", border_style="blue", expand=False))
 
         if stats["languages"]:
-            typer.echo("  Languages:")
+            lang_table = Table(title="Languages", box=None, show_header=True)
+            lang_table.add_column("Language", style="cyan")
+            lang_table.add_column("Files", justify="right")
+            
             for lang, count in stats["languages"].items():
-                typer.echo(f"    {lang}: {count} files")
+                lang_table.add_row(lang, str(count))
+            
+            console.print(Panel(lang_table, border_style="blue", expand=False))
 
         # Health checks (Req 8.3)
-        typer.echo("\nHealth:")
-
+        console.print("\n[bold]System Health:[/bold]")
+        
         # Check vector store connectivity
         try:
             vector_stats = asyncio.run(vector_store.get_stats())
-            typer.echo(f"  Vector Store: OK ({vector_stats.get('total_vectors', 0)} vectors)")
+            count = vector_stats.get("total_vectors", 0)
+            console.print(f"  [green]✓[/green] Vector Store: Connected ({count} vectors)")
         except Exception as e:
-            typer.echo(f"  Vector Store: ERROR - {e}", err=True)
+            console.print(f"  [red]✗[/red] Vector Store: Error - {e}")
 
-        # Check embedding service connectivity (basic check)
-        typer.echo(f"  Embedding API: {cfg.embedding.api_url}")
-        typer.echo(f"  Embedding Model: {cfg.embedding.model}")
+        # Check embedding service connectivity
+        console.print(f"  [green]✓[/green] Embedding API: {cfg.embedding.api_url} ({cfg.embedding.model})")
 
-        # Show config info
-        typer.echo("\nConfiguration:")
-        typer.echo(f"  File extensions: {', '.join(cfg.indexing.file_extensions)}")
-        typer.echo(f"  Max chunk tokens: {cfg.indexing.max_chunk_tokens}")
-        typer.echo(f"  Rerank enabled: {cfg.search.use_rerank}")
+        # Configuration summary
+        config_summary = f"""File Extensions: {', '.join(cfg.indexing.file_extensions)}
+Max Chunk Tokens: {cfg.indexing.max_chunk_tokens}
+Rerank Enabled: {cfg.search.use_rerank}"""
+        
+        console.print(Panel(config_summary, title="Configuration", border_style="dim", expand=False))
 
     except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
@@ -551,7 +502,11 @@ def serve(
 
     try:
         # Build FastAPI app directly (ensures config + Qdrant checks)
+        # Note: Ensure create_app is available in aci.__main__ or similar if not here
+        from aci import create_app
+        
         app = create_app()
+        console.print(f"[bold green]Starting API server at http://{host}:{port}[/bold green]")
         uvicorn.run(
             app,
             host=host,
@@ -559,8 +514,11 @@ def serve(
             reload=False,
             log_level="info",
         )
+    except ImportError:
+         console.print("[bold red]Error:[/bold red] Could not import create_app. Ensure aci package is installed correctly.")
+         raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
 
