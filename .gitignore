@@ -5,3 +5,4 @@
 uv.lock
 .pytest_cache/.venv-wsl/
 .diagnoses/
+.env
