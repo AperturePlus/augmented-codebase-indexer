@@ -10,6 +10,7 @@ A Python tool for semantic code search with precise line-level location results.
 - Tree-sitter based AST parsing
 - Qdrant vector database integration
 - Incremental indexing
+- **MCP (Model Context Protocol) interface for LLM integration**
 
 ## Installation
 
@@ -40,6 +41,53 @@ aci serve --host 0.0.0.0 --port 8000
 
 # Also available via python -m entrypoint
 uv run python -m aci serve  # when using uv
+
+# Start MCP server (for LLM integration)
+aci-mcp
+# or
+uv run aci-mcp
+```
+
+## MCP Integration
+
+ACI now supports the Model Context Protocol (MCP), allowing large language models to directly interact with your codebase indexing and search capabilities.
+
+### Quick Start with MCP
+
+1. Install ACI with dependencies:
+```bash
+pip install -e ".[dev]"
+```
+
+2. Configure your MCP client (e.g., Kiro, Claude Desktop) to use ACI:
+```json
+{
+  "mcpServers": {
+    "aci": {
+      "command": "uv",
+      "args": ["run", "aci-mcp"],
+      "env": {
+        "ACI_EMBEDDING_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+3. Start using natural language to interact with your codebase:
+   - "Index the /path/to/project directory"
+   - "Search for authentication functions"
+   - "Show me the index status"
+
+For detailed MCP setup and usage, see [MCP_USAGE.md](./MCP_USAGE.md).
+
+### Available MCP Tools
+
+- `index_codebase` - Index a directory for semantic search
+- `search_code` - Search code using natural language queries
+- `get_index_status` - Get indexing statistics and health info
+- `update_index` - Incrementally update the index
+- `list_indexed_repos` - List all indexed repositories
 ```
 
 ## Configuration

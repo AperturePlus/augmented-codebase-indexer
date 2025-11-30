@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "aci": {
+      "command": "uv",
+      "args": ["run", "aci-mcp"],
+      "env": {
+        "ACI_EMBEDDING_API_URL": "https://api.openai.com/v1/embeddings",
+        "ACI_EMBEDDING_API_KEY": "your_api_key_here",
+        "ACI_EMBEDDING_MODEL": "text-embedding-3-small",
+        "ACI_EMBEDDING_DIMENSION": "1024",
+        "ACI_VECTOR_STORE_HOST": "localhost",
+        "ACI_VECTOR_STORE_PORT": "6333",
+        "ACI_VECTOR_STORE_VECTOR_SIZE": "1024",
+        "ACI_INDEXING_MAX_WORKERS": "4"
+      }
+    }
+  }
+}

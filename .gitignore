@@ -6,3 +6,8 @@ uv.lock
 .pytest_cache/.venv-wsl/
 .diagnoses/
 .env
+.compare
+.ruff_cache
+.pytest_cache/
+.aci/
+.venv-wsl

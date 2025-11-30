@@ -5,3 +5,7 @@ A Python tool for semantic code search with precise line-level location results.
 """
 
 __version__ = "0.1.0"
+
+from aci.http_server import create_app
+
+__all__ = ["create_app"]

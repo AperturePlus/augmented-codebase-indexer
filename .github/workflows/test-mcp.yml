@@ -1,0 +1,40 @@
+name: Test MCP Server
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-mcp:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: |
+        uv pip install --system -e ".[dev]"
+    
+    - name: Test MCP tool listing
+      run: |
+        python test_mcp_server.py
+    
+    - name: Run MCP example
+      run: |
+        python examples/mcp_client_example.py
+    
+    - name: Check MCP server imports
+      run: |
+        python -c "from aci.mcp_server import app, list_tools, call_tool; print('✓ MCP server imports successful')"
