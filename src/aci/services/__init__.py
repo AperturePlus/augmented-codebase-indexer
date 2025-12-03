@@ -16,6 +16,7 @@ from aci.services.reranker import (
 )
 from aci.services.search_service import (
     RerankerInterface,
+    SearchMode,
     SearchService,
 )
 
@@ -23,6 +24,7 @@ __all__ = [
     "IndexingService",
     "IndexingResult",
     "SearchService",
+    "SearchMode",
     "RerankerInterface",
     "OpenAICompatibleReranker",
     "SimpleReranker",

@@ -13,8 +13,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from aci.cli import get_services
+from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
-from aci.services import IndexingService, SearchService
+from aci.services import IndexingService, SearchMode, SearchService
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,14 @@ def create_app() -> FastAPI:
         reranker,
     ) = get_services()
 
+    # Create GrepSearcher with base path from config or current directory
+    grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
+
     search_service = SearchService(
         embedding_client=embedding_client,
         vector_store=vector_store,
         reranker=reranker,
+        grep_searcher=grep_searcher,
         default_limit=cfg.search.default_limit,
     )
     indexing_service = IndexingService(
@@ -163,14 +168,28 @@ def create_app() -> FastAPI:
         limit: Optional[int] = None,
         file_filter: Optional[str] = None,
         use_rerank: Optional[bool] = None,
+        mode: Optional[str] = None,
     ):
         try:
             apply_rerank = cfg.search.use_rerank if use_rerank is None else use_rerank
+
+            # Parse search mode (default to hybrid)
+            search_mode = SearchMode.HYBRID
+            if mode:
+                mode_lower = mode.lower()
+                if mode_lower == "vector":
+                    search_mode = SearchMode.VECTOR
+                elif mode_lower == "grep":
+                    search_mode = SearchMode.GREP
+                elif mode_lower == "hybrid":
+                    search_mode = SearchMode.HYBRID
+
             results = await search_service.search(
                 query=q,
                 limit=limit,
                 file_filter=file_filter,
                 use_rerank=apply_rerank,
+                search_mode=search_mode,
             )
             return {"results": [_to_response_item(r) for r in results]}
         except Exception as exc:

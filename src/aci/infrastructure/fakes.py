@@ -138,6 +138,11 @@ class InMemoryVectorStore(VectorStoreInterface):
         """Clear all stored data."""
         self.clear()
 
+    async def get_all_file_paths(self) -> List[str]:
+        """Get all unique file paths in the store."""
+        unique_files = set(p.get("file_path", "") for p in self._payloads.values())
+        return [f for f in unique_files if f]  # Filter out empty strings
+
     def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
         if len(a) != len(b):

@@ -4,15 +4,70 @@ Search Service for Project ACI.
 Provides semantic search functionality over indexed codebases.
 """
 
+import asyncio
 import inspect
 import logging
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import List, Optional
 
 from aci.infrastructure.embedding_client import EmbeddingClientInterface
+from aci.infrastructure.grep_searcher import GrepSearcherInterface
 from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface
 
 logger = logging.getLogger(__name__)
+
+
+class SearchMode(str, Enum):
+    """Search mode for controlling which search methods are used."""
+
+    HYBRID = "hybrid"
+    VECTOR = "vector"
+    GREP = "grep"
+
+
+def _is_near_duplicate(grep_result: SearchResult, vector_results: List[SearchResult]) -> bool:
+    """
+    Check if grep result overlaps with any vector chunk.
+
+    A grep result is a near-duplicate if:
+    - Same file_path as a vector result
+    - grep start_line >= vector start_line
+    - grep end_line <= vector end_line
+
+    Args:
+        grep_result: A single grep search result
+        vector_results: List of vector search results
+
+    Returns:
+        True if grep result is contained within any vector chunk
+    """
+    for vr in vector_results:
+        if (
+            grep_result.file_path == vr.file_path
+            and grep_result.start_line >= vr.start_line
+            and grep_result.end_line <= vr.end_line
+        ):
+            return True
+    return False
+
+
+def _deduplicate_results(
+    grep_results: List[SearchResult], vector_results: List[SearchResult]
+) -> List[SearchResult]:
+    """
+    Filter grep results that overlap with vector chunks.
+
+    Retains only grep results that are NOT contained within any vector chunk.
+
+    Args:
+        grep_results: Results from grep search
+        vector_results: Results from vector search
+
+    Returns:
+        Filtered list of grep results with duplicates removed
+    """
+    return [gr for gr in grep_results if not _is_near_duplicate(gr, vector_results)]
 
 
 class RerankerInterface(ABC):
@@ -44,7 +99,8 @@ class SearchService:
     Service for semantic code search.
 
     Converts queries to embeddings, searches the vector store,
-    and optionally re-ranks results.
+    and optionally re-ranks results. Supports hybrid search combining
+    vector and grep search methods.
     """
 
     def __init__(
@@ -52,8 +108,11 @@ class SearchService:
         embedding_client: EmbeddingClientInterface,
         vector_store: VectorStoreInterface,
         reranker: Optional[RerankerInterface] = None,
+        grep_searcher: Optional[GrepSearcherInterface] = None,
         default_limit: int = 10,
         recall_multiplier: int = 5,
+        vector_candidates: int = 20,
+        grep_candidates: int = 20,
     ):
         """
         Initialize the search service.
@@ -62,14 +121,20 @@ class SearchService:
             embedding_client: Client for generating query embeddings
             vector_store: Store for vector search
             reranker: Optional re-ranker for result refinement
+            grep_searcher: Optional grep searcher for keyword search
             default_limit: Default number of results to return
             recall_multiplier: Multiplier for initial recall when re-ranking
+            vector_candidates: Number of candidates to retrieve from vector search
+            grep_candidates: Number of candidates to retrieve from grep search
         """
         self._embedding_client = embedding_client
         self._vector_store = vector_store
         self._reranker = reranker
+        self._grep_searcher = grep_searcher
         self._default_limit = default_limit
         self._recall_multiplier = recall_multiplier
+        self._vector_candidates = vector_candidates
+        self._grep_candidates = grep_candidates
 
     async def search(
         self,
@@ -77,6 +142,7 @@ class SearchService:
         limit: Optional[int] = None,
         file_filter: Optional[str] = None,
         use_rerank: bool = True,
+        search_mode: SearchMode = SearchMode.HYBRID,
     ) -> List[SearchResult]:
         """
         Perform semantic search.
@@ -86,28 +152,35 @@ class SearchService:
             limit: Maximum results to return (default: default_limit)
             file_filter: Optional glob pattern for file paths
             use_rerank: Whether to use re-ranker if available
+            search_mode: Search mode (HYBRID, VECTOR, or GREP)
 
         Returns:
             List of SearchResult sorted by relevance
         """
         limit = limit or self._default_limit
 
-        # Generate query embedding
-        embeddings = await self._embedding_client.embed_batch([query])
-        query_vector = embeddings[0]
+        # Execute searches based on mode
+        vector_results: List[SearchResult] = []
+        grep_results: List[SearchResult] = []
 
-        # Determine recall limit
-        if use_rerank and self._reranker:
-            recall_limit = limit * self._recall_multiplier
+        if search_mode == SearchMode.HYBRID:
+            # Run both searches in parallel
+            vector_results, grep_results = await self._execute_hybrid_search(
+                query, file_filter
+            )
+        elif search_mode == SearchMode.VECTOR:
+            vector_results = await self._execute_vector_search(query, file_filter)
+        elif search_mode == SearchMode.GREP:
+            grep_results = await self._execute_grep_search(query, file_filter)
+
+        # Merge and deduplicate results
+        if vector_results and grep_results:
+            deduplicated_grep = _deduplicate_results(grep_results, vector_results)
+            candidates = vector_results + deduplicated_grep
+        elif vector_results:
+            candidates = vector_results
         else:
-            recall_limit = limit
-
-        # Search vector store
-        candidates = await self._vector_store.search(
-            query_vector=query_vector,
-            limit=recall_limit,
-            file_filter=file_filter,
-        )
+            candidates = grep_results
 
         # Re-rank if enabled and reranker available
         if use_rerank and self._reranker and candidates:
@@ -117,9 +190,76 @@ class SearchService:
             else:
                 results = reranked
         else:
+            # Sort by score descending and limit
+            candidates.sort(key=lambda r: r.score, reverse=True)
             results = candidates[:limit]
 
         return results
+
+    async def _execute_vector_search(
+        self, query: str, file_filter: Optional[str]
+    ) -> List[SearchResult]:
+        """Execute vector search and return results."""
+        try:
+            # Generate query embedding
+            embeddings = await self._embedding_client.embed_batch([query])
+            query_vector = embeddings[0]
+
+            # Search vector store
+            return await self._vector_store.search(
+                query_vector=query_vector,
+                limit=self._vector_candidates,
+                file_filter=file_filter,
+            )
+        except Exception as e:
+            logger.error(f"Vector search failed: {e}")
+            return []
+
+    async def _execute_grep_search(
+        self, query: str, file_filter: Optional[str]
+    ) -> List[SearchResult]:
+        """Execute grep search and return results."""
+        if not self._grep_searcher:
+            return []
+
+        try:
+            # Get all indexed file paths from vector store
+            file_paths = await self._vector_store.get_all_file_paths()
+
+            return await self._grep_searcher.search(
+                query=query,
+                file_paths=file_paths,
+                limit=self._grep_candidates,
+                file_filter=file_filter,
+            )
+        except Exception as e:
+            logger.error(f"Grep search failed: {e}")
+            return []
+
+    async def _execute_hybrid_search(
+        self, query: str, file_filter: Optional[str]
+    ) -> tuple[List[SearchResult], List[SearchResult]]:
+        """Execute both vector and grep search in parallel."""
+        try:
+            vector_task = self._execute_vector_search(query, file_filter)
+            grep_task = self._execute_grep_search(query, file_filter)
+
+            vector_results, grep_results = await asyncio.gather(
+                vector_task, grep_task, return_exceptions=True
+            )
+
+            # Handle exceptions from gather
+            if isinstance(vector_results, Exception):
+                logger.error(f"Vector search failed in hybrid mode: {vector_results}")
+                vector_results = []
+            if isinstance(grep_results, Exception):
+                logger.error(f"Grep search failed in hybrid mode: {grep_results}")
+                grep_results = []
+
+            return vector_results, grep_results
+        except Exception as e:
+            logger.error(f"Hybrid search failed: {e}")
+            return [], []
 
     async def search_by_file(
         self,

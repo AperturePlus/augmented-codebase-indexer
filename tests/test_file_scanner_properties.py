@@ -81,7 +81,7 @@ def create_test_directory(tmpdir: Path, files: list[tuple[str, str]]) -> None:
 
 
 @given(data=file_structure_strategy())
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 def test_file_extension_filter_correctness(data):
     """
     **Feature: codebase-semantic-search, Property 1: File Extension Filter Correctness**

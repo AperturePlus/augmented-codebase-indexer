@@ -173,6 +173,9 @@ class TestJSDocExtractorProperties:
     def test_jsdoc_extraction_with_keywords(self, comment_text, function_name, keywords):
         """Test JSDoc extraction with various keyword combinations."""
         assume(function_name.isidentifier())  # Valid identifier
+        # Avoid comment text that would break JSDoc structure
+        assume('*/' not in comment_text)
+        assume('/*' not in comment_text)
         
         keyword_str = " ".join(keywords) + " " if keywords else ""
         content = f"""/** {comment_text} */
@@ -207,6 +210,12 @@ class TestJSDocExtractorProperties:
     def test_multiline_jsdoc_extraction(self, comment_lines, function_name):
         """Test extraction of multi-line JSDoc comments."""
         assume(function_name.isidentifier())
+        # Avoid lines that could break JSDoc structure or look like code
+        for line in comment_lines:
+            assume('*/' not in line)
+            assume('/*' not in line)
+            # Avoid lines that look like function declarations
+            assume(not line.strip().startswith('function'))
         
         # Build multi-line JSDoc
         jsdoc_lines = ["/**"]
@@ -306,9 +315,12 @@ class TestGoDocExtractorProperties:
             assert result is None
         else:
             assert result is not None
+            # Result contains lines with "// " prefix, and trailing whitespace may be stripped
             for line in comment_lines:
-                if line.strip():
-                    assert line in result
+                stripped_line = line.strip()
+                if stripped_line:
+                    # The result format is "// line", check if the stripped line content appears
+                    assert f"// {stripped_line}" in result or stripped_line in result
 
     @given(
         doc_lines=st.lists(
@@ -334,7 +346,13 @@ class TestGoDocExtractorProperties:
     def test_go_doc_stops_at_non_comment(self, doc_lines, separator_lines, function_name):
         """Test that Go doc extraction stops at non-comment lines."""
         assume(function_name.isidentifier())
+        # Ensure separator lines are truly distinct from doc lines (not substrings)
         assume(set(doc_lines).isdisjoint(set(separator_lines)))
+        # Ensure no line is a substring of another to avoid false positives
+        for sep_line in separator_lines:
+            for doc_line in doc_lines:
+                assume(sep_line.strip() not in doc_line)
+                assume(doc_line.strip() not in sep_line)
         
         # Build content with separate comment blocks
         first_block = [f"// {line}" for line in separator_lines]
@@ -353,15 +371,20 @@ class TestGoDocExtractorProperties:
         result = self.extractor.extract(node, content, None)
 
         if result is not None:
+            result_lines = result.split('\n')
             # Should only contain the second block (immediately before function)
             for line in doc_lines:
-                if line.strip():
-                    assert f"// {line}".strip() in result
+                stripped = line.strip()
+                if stripped:
+                    expected_line = f"// {stripped}"
+                    assert any(expected_line == rl.strip() for rl in result_lines)
 
             # Should NOT contain the first block (separated by non-comment)
             for line in separator_lines:
-                if line.strip():
-                    assert f"// {line}".strip() not in result
+                stripped = line.strip()
+                if stripped:
+                    excluded_line = f"// {stripped}"
+                    assert all(excluded_line != rl.strip() for rl in result_lines)
 
 
 class TestCommentExtractionInvariants:

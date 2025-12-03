@@ -79,6 +79,11 @@ class VectorStoreInterface(ABC):
         """Get a specific chunk by ID."""
         pass
 
+    @abstractmethod
+    async def get_all_file_paths(self) -> List[str]:
+        """Get all unique file paths in the store."""
+        pass
+
     async def reset(self) -> None:
         """Reset/clear the vector store (optional)."""
         pass
@@ -486,6 +491,37 @@ class QdrantVectorStore(VectorStoreInterface):
             raise VectorStoreError(
                 f"Failed to get by ID (host={self._host}, port={self._port}, "
                 f"collection={self._collection_name}, id={chunk_id}): {e}"
+            ) from e
+
+    async def get_all_file_paths(self) -> List[str]:
+        """Get all unique file paths in the store."""
+        await self.initialize()
+        client = await self._get_client()
+
+        try:
+            unique_files = set()
+            offset = None
+            while True:
+                records, offset = await client.scroll(
+                    collection_name=self._collection_name,
+                    limit=1000,
+                    offset=offset,
+                    with_payload=["file_path"],
+                )
+                for record in records:
+                    if record.payload:
+                        file_path = record.payload.get("file_path", "")
+                        if file_path:
+                            unique_files.add(file_path)
+                if offset is None:
+                    break
+
+            return list(unique_files)
+
+        except Exception as e:
+            raise VectorStoreError(
+                f"Failed to get file paths (host={self._host}, port={self._port}, "
+                f"collection={self._collection_name}): {e}"
             ) from e
 
     async def reset(self) -> None:

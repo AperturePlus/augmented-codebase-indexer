@@ -15,6 +15,11 @@ from aci.infrastructure.fakes import (
     InMemoryVectorStore,
     LocalEmbeddingClient,
 )
+from aci.infrastructure.grep_searcher import (
+    GrepSearcher,
+    GrepSearcherError,
+    GrepSearcherInterface,
+)
 from aci.infrastructure.metadata_store import (
     IndexedFileInfo,
     IndexMetadataStore,
@@ -44,6 +49,10 @@ __all__ = [
     "SearchResult",
     "VectorStoreError",
     "create_vector_store",
+    # Grep searcher
+    "GrepSearcherInterface",
+    "GrepSearcher",
+    "GrepSearcherError",
     # Metadata store
     "IndexMetadataStore",
     "IndexedFileInfo",

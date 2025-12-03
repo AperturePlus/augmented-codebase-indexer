@@ -101,16 +101,16 @@ package main
 
 import "fmt"
 
-# User represents a system user.
+// User represents a system user.
 type User struct {
     Name string
     ID   int
 }
 
-# AuthenticateUser verifies the user's credentials against the database.
-# It returns a session token if successful, or an error otherwise.
-# 
-# Security: This function uses constant-time comparison.
+// AuthenticateUser verifies the user's credentials against the database.
+// It returns a session token if successful, or an error otherwise.
+//
+// Security: This function uses constant-time comparison.
 func AuthenticateUser(username, password string) (string, error) {
     return "token", nil
 }
@@ -124,7 +124,7 @@ func ConnectDatabase(url string) error {
     return nil
 }
 
-# Helper function without doc comment
+// Helper function without doc comment
 func helper() {}
 """
         (self.test_dir / "complex_go.go").write_text(go_content, encoding="utf-8")

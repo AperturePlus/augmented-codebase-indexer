@@ -14,7 +14,8 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from aci.cli import get_services
-from aci.services import IndexingService, SearchService
+from aci.infrastructure.grep_searcher import GrepSearcher
+from aci.services import IndexingService, SearchMode, SearchService
 
 
 # Initialize MCP server
@@ -33,10 +34,14 @@ def _get_initialized_services():
         reranker,
     ) = get_services()
 
+    # Create GrepSearcher with base path from current directory
+    grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
+
     search_service = SearchService(
         embedding_client=embedding_client,
         vector_store=vector_store,
         reranker=reranker,
+        grep_searcher=grep_searcher,
         default_limit=cfg.search.default_limit,
     )
 
@@ -78,7 +83,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_code",
-            description="Search the indexed codebase using semantic search. Returns relevant code chunks with file paths and line numbers.",
+            description="Search the indexed codebase using semantic search, keyword search, or both. Returns relevant code chunks with file paths and line numbers.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -99,6 +104,11 @@ async def list_tools() -> list[Tool]:
                     "use_rerank": {
                         "type": "boolean",
                         "description": "Whether to use reranking for better results (optional, defaults to config)",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["hybrid", "vector", "grep"],
+                        "description": "Search mode: 'hybrid' (default) combines semantic and keyword search, 'vector' for semantic only, 'grep' for keyword only",
                     },
                 },
                 "required": ["query"],
@@ -196,6 +206,7 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
     limit = arguments.get("limit")
     file_filter = arguments.get("file_filter")
     use_rerank = arguments.get("use_rerank")
+    mode = arguments.get("mode")
 
     cfg, search_service, _, _, _ = _get_initialized_services()
 
@@ -205,11 +216,23 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
     if use_rerank is None:
         use_rerank = cfg.search.use_rerank
 
+    # Parse search mode (default to hybrid)
+    search_mode = SearchMode.HYBRID
+    if mode:
+        mode_lower = mode.lower()
+        if mode_lower == "vector":
+            search_mode = SearchMode.VECTOR
+        elif mode_lower == "grep":
+            search_mode = SearchMode.GREP
+        elif mode_lower == "hybrid":
+            search_mode = SearchMode.HYBRID
+
     results = await search_service.search(
         query=query,
         limit=limit,
         file_filter=file_filter,
         use_rerank=use_rerank,
+        search_mode=search_mode,
     )
 
     if not results:
