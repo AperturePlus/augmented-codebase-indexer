@@ -100,6 +100,11 @@ class IndexMetadataStore:
             self._conn = sqlite3.connect(str(self._db_path))
             self._conn.row_factory = sqlite3.Row
 
+            # Enable WAL mode for better concurrency
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+            # Increase busy timeout to wait for locks (5000ms)
+            self._conn.execute("PRAGMA busy_timeout=5000;")
+
         return self._conn
 
     def initialize(self) -> None:

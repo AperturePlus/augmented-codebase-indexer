@@ -415,6 +415,7 @@ class FileScanner(FileScannerInterface):
             - Skips files/directories matching ignore patterns
             - Only yields files with configured extensions
             - Logs errors and continues on unreadable files
+            - Detects and prevents infinite recursion from symlink loops
         """
         root_path = Path(root_path).resolve()
 
@@ -426,20 +427,32 @@ class FileScanner(FileScannerInterface):
             logger.error(f"Root path is not a directory: {root_path}")
             return
 
-        yield from self._scan_directory(root_path, root_path)
+        # Track visited real paths to prevent cycles
+        visited = set()
+        yield from self._scan_directory(root_path, root_path, visited)
 
-    def _scan_directory(self, current_path: Path, root_path: Path) -> Iterator[ScannedFile]:
+    def _scan_directory(
+        self, current_path: Path, root_path: Path, visited: Set[Path]
+    ) -> Iterator[ScannedFile]:
         """
         Recursively scan a directory.
 
         Args:
             current_path: Current directory being scanned
             root_path: Original root directory for relative path calculation
+            visited: Set of resolved paths already visited to prevent cycles
 
         Yields:
             ScannedFile objects for matching files
         """
         try:
+            # Resolve symlinks to check for cycles
+            real_path = current_path.resolve()
+            if real_path in visited:
+                logger.debug(f"Skipping recursive cycle: {current_path} -> {real_path}")
+                return
+            visited.add(real_path)
+
             entries = sorted(current_path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
         except PermissionError as e:
             logger.warning(f"Permission denied accessing directory: {current_path} - {e}")
@@ -456,13 +469,26 @@ class FileScanner(FileScannerInterface):
 
             if entry.is_dir():
                 # Recursively scan subdirectories
-                yield from self._scan_directory(entry, root_path)
+                # Pass a copy of visited to avoid polluting sibling branches? 
+                # No, for cycle detection we want to track path from root.
+                # Actually, for general graph traversal, we keep visited.
+                # But to avoid excluding same real dir reached via different valid non-cyclic paths?
+                # For file system tree, usually we just want to avoid LOOPS.
+                # So adding to visited is correct for current recursion stack.
+                # However, to support same dir reachable via different paths (if not cyclic),
+                # strict visited might be too aggressive if structure is DAG.
+                # But for typical "scan tree", strict visited is safest and simplest.
+                yield from self._scan_directory(entry, root_path, visited)
             elif entry.is_file():
                 # Check extension and process file
                 if self._has_matching_extension(entry):
                     scanned = self._scan_file(entry)
                     if scanned is not None:
                         yield scanned
+        
+        # Remove from visited when backtracking to allow other paths to visit this real dir
+        # (if we want to support DAG structures, though typically unnecessary for pure tree scan)
+        visited.remove(real_path)
 
     def _scan_file(self, file_path: Path) -> ScannedFile | None:
         """
@@ -479,6 +505,11 @@ class FileScanner(FileScannerInterface):
             stat = file_path.stat()
             size_bytes = stat.st_size
             modified_time = stat.st_mtime
+
+            # Check file size (limit to 10MB to prevent OOM)
+            if size_bytes > 10 * 1024 * 1024:  # 10 MB
+                logger.warning(f"Skipping large file ({size_bytes} bytes): {file_path}")
+                return None
 
             # Read content
             content = file_path.read_text(encoding="utf-8")

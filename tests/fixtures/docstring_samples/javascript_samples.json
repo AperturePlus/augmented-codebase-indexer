@@ -1,0 +1,105 @@
+{
+  "language": "javascript",
+  "description": "JavaScript/TypeScript JSDoc extraction test cases",
+  "test_cases": [
+    {
+      "id": "js_func_single_line_jsdoc",
+      "description": "Function with single-line JSDoc",
+      "code": "/** Adds two numbers */\nfunction add(a, b) {\n    return a + b;\n}",
+      "expected": [
+        {
+          "name": "add",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Adds two numbers"]
+        }
+      ]
+    },
+    {
+      "id": "js_func_multiline_jsdoc",
+      "description": "Function with multi-line JSDoc and tags",
+      "code": "/**\n * Authenticates a user.\n * @param {string} username - User name\n * @param {string} password - Password\n * @returns {boolean} Success\n */\nfunction authenticate(username, password) {\n    return true;\n}",
+      "expected": [
+        {
+          "name": "authenticate",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Authenticates", "@param", "@returns"]
+        }
+      ]
+    },
+    {
+      "id": "js_class_with_jsdoc",
+      "description": "Class with JSDoc",
+      "code": "/**\n * Represents a user.\n * @class\n */\nclass User {\n    constructor(name) {\n        this.name = name;\n    }\n}",
+      "expected": [
+        {
+          "name": "User",
+          "node_type": "class",
+          "has_docstring": true,
+          "docstring_contains": ["Represents a user"]
+        }
+      ]
+    },
+    {
+      "id": "js_method_with_jsdoc",
+      "description": "Class method with JSDoc",
+      "code": "class Calculator {\n    /**\n     * Multiplies two numbers.\n     * @param {number} a - First number\n     * @param {number} b - Second number\n     * @returns {number} Product\n     */\n    multiply(a, b) {\n        return a * b;\n    }\n}",
+      "expected": [
+        {
+          "name": "Calculator",
+          "node_type": "class",
+          "has_docstring": false
+        },
+        {
+          "name": "multiply",
+          "node_type": "method",
+          "has_docstring": true,
+          "docstring_contains": ["Multiplies", "@param", "@returns"]
+        }
+      ]
+    },
+    {
+      "id": "js_arrow_function_jsdoc",
+      "description": "Arrow function with JSDoc",
+      "code": "/**\n * Calculates the square.\n * @param {number} x - Input\n * @returns {number} Square\n */\nconst square = (x) => x * x;",
+      "expected": [
+        {
+          "name": "square",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Calculates the square"]
+        }
+      ]
+    },
+    {
+      "id": "js_func_no_jsdoc",
+      "description": "Function without JSDoc",
+      "code": "function noDoc() {\n    return 42;\n}",
+      "expected": [
+        {
+          "name": "noDoc",
+          "node_type": "function",
+          "has_docstring": false
+        }
+      ]
+    },
+    {
+      "id": "js_regular_comment_ignored",
+      "description": "Regular comments should not be extracted",
+      "code": "// This is a regular comment\nfunction regularComment() {\n    return 1;\n}\n\n/* Block comment */\nfunction blockComment() {\n    return 2;\n}",
+      "expected": [
+        {
+          "name": "regularComment",
+          "node_type": "function",
+          "has_docstring": false
+        },
+        {
+          "name": "blockComment",
+          "node_type": "function",
+          "has_docstring": false
+        }
+      ]
+    }
+  ]
+}

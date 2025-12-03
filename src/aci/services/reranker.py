@@ -9,6 +9,7 @@ from typing import List
 
 import httpx
 
+from aci.core.docstring_formatter import DocstringFormatter
 from aci.infrastructure.vector_store import SearchResult
 from aci.services.search_service import RerankerInterface
 
@@ -42,6 +43,7 @@ class OpenAICompatibleReranker(RerankerInterface):
     ):
         self._model = model
         self._endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        self._doc_formatter = DocstringFormatter()
         self._client = httpx.AsyncClient(
             base_url=api_url.rstrip("/"),
             timeout=timeout,
@@ -63,10 +65,21 @@ class OpenAICompatibleReranker(RerankerInterface):
         # API may reject top_n > doc count; keep it bounded
         top_n = min(top_k, len(candidates))
 
+        documents = []
+        for c in candidates:
+            docstring = (c.metadata or {}).get("docstring")
+            language = (c.metadata or {}).get("language", "unknown")
+            if docstring:
+                documents.append(
+                    self._doc_formatter.format_for_embedding(docstring, c.content, language)
+                )
+            else:
+                documents.append(c.content)
+
         payload = {
             "model": self._model,
             "query": query,
-            "documents": [c.content for c in candidates],
+            "documents": documents,
             "top_n": top_n,
         }
 

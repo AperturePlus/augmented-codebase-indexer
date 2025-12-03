@@ -277,75 +277,82 @@ class IndexingService:
         all_chunks: List[CodeChunk] = []
         loop = asyncio.get_running_loop()
         
-        # Use ProcessPoolExecutor for true CPU parallelism
-        # Pass initializer to set up global parser/chunker per worker
-        with ProcessPoolExecutor(
-            max_workers=self._max_workers,
-            initializer=_init_worker
-        ) as executor:
-            # Submit all tasks
-            futures = []
-            for scanned_file in files:
-                future = loop.run_in_executor(
-                    executor,
-                    _process_file_worker,
-                    str(scanned_file.path),
-                    scanned_file.content,
-                    scanned_file.language,
-                    scanned_file.content_hash,
-                    scanned_file.modified_time,
-                    scanned_file.size_bytes,
-                )
-                futures.append((future, scanned_file))
-            
-            # Collect results as they complete
-            processed_count = 0
-            for future, scanned_file in futures:
-                try:
-                    file_path, chunks_data, language, line_count, content_hash, error = await future
-                    
-                    if error:
-                        result.failed_files.append(file_path)
-                    else:
-                        # Convert chunk dictionaries back to CodeChunk objects
-                        chunks = [
-                            CodeChunk(
-                                chunk_id=cd["chunk_id"],
-                                file_path=cd["file_path"],
-                                start_line=cd["start_line"],
-                                end_line=cd["end_line"],
-                                content=cd["content"],
-                                language=cd["language"],
-                                chunk_type=cd["chunk_type"],
-                                metadata=cd["metadata"],
-                            )
-                            for cd in chunks_data
-                        ]
-                        all_chunks.extend(chunks)
-                        result.total_files += 1
-                        
-                        # Update metadata
-                        self._metadata_store.upsert_file(IndexedFileInfo(
-                            file_path=file_path,
-                            content_hash=content_hash,
-                            language=language,
-                            line_count=line_count,
-                            chunk_count=len(chunks),
-                            indexed_at=datetime.now(),
-                            modified_time=scanned_file.modified_time,
-                        ))
-                        
-                except Exception as e:
-                    logger.error(f"Failed to process {scanned_file.path}: {e}")
-                    result.failed_files.append(str(scanned_file.path))
-                
-                processed_count += 1
-                if processed_count % 10 == 0 or processed_count == total_files:
-                    self._report_progress(
-                        processed_count, total_files, 
-                        f"Processed {processed_count} files"
+        try:
+            # Use ProcessPoolExecutor for true CPU parallelism
+            # Pass initializer to set up global parser/chunker per worker
+            with ProcessPoolExecutor(
+                max_workers=self._max_workers,
+                initializer=_init_worker
+            ) as executor:
+                # Submit all tasks
+                futures = []
+                for scanned_file in files:
+                    future = loop.run_in_executor(
+                        executor,
+                        _process_file_worker,
+                        str(scanned_file.path),
+                        scanned_file.content,
+                        scanned_file.language,
+                        scanned_file.content_hash,
+                        scanned_file.modified_time,
+                        scanned_file.size_bytes,
                     )
-        
+                    futures.append((future, scanned_file))
+                
+                # Collect results as they complete
+                processed_count = 0
+                for future, scanned_file in futures:
+                    try:
+                        file_path, chunks_data, language, line_count, content_hash, error = await future
+                        
+                        if error:
+                            result.failed_files.append(file_path)
+                        else:
+                            # Convert chunk dictionaries back to CodeChunk objects
+                            chunks = [
+                                CodeChunk(
+                                    chunk_id=cd["chunk_id"],
+                                    file_path=cd["file_path"],
+                                    start_line=cd["start_line"],
+                                    end_line=cd["end_line"],
+                                    content=cd["content"],
+                                    language=cd["language"],
+                                    chunk_type=cd["chunk_type"],
+                                    metadata=cd["metadata"],
+                                )
+                                for cd in chunks_data
+                            ]
+                            all_chunks.extend(chunks)
+                            result.total_files += 1
+                            
+                            # Update metadata
+                            self._metadata_store.upsert_file(IndexedFileInfo(
+                                file_path=file_path,
+                                content_hash=content_hash,
+                                language=language,
+                                line_count=line_count,
+                                chunk_count=len(chunks),
+                                indexed_at=datetime.now(),
+                                modified_time=scanned_file.modified_time,
+                            ))
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to process {scanned_file.path}: {e}")
+                        result.failed_files.append(str(scanned_file.path))
+                    
+                    processed_count += 1
+                    if processed_count % 10 == 0 or processed_count == total_files:
+                        self._report_progress(
+                            processed_count, total_files, 
+                            f"Processed {processed_count} files"
+                        )
+        except Exception as exc:
+            logger.warning(
+                "ProcessPoolExecutor failed (%s). Falling back to sequential processing.",
+                exc,
+            )
+            return await self._process_files_sequential(files, result, total_files)
+
         return all_chunks, result
 
     async def _process_files_sequential(

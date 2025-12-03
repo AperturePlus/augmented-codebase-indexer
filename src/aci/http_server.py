@@ -5,6 +5,7 @@ Provides a lightweight FastAPI server to expose indexing and search endpoints.
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +15,8 @@ from pydantic import BaseModel
 from aci.cli import get_services
 from aci.infrastructure.vector_store import SearchResult
 from aci.services import IndexingService, SearchService
+
+logger = logging.getLogger(__name__)
 
 
 class IndexRequest(BaseModel):
@@ -93,27 +96,66 @@ def create_app() -> FastAPI:
                 "embedding_model": cfg.embedding.model,
             }
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            logger.error(f"Error in /status: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal Server Error")
 
     @app.post("/index")
     async def index(req: IndexRequest):
         try:
-            workers = req.workers if req.workers is not None else cfg.indexing.max_workers
+            # Security: Validate path
+            target_path = Path(req.path).resolve()
+            if not target_path.exists():
+                raise HTTPException(status_code=400, detail="Path does not exist")
+            if not target_path.is_dir():
+                raise HTTPException(status_code=400, detail="Path is not a directory")
+
+            # Security: Block sensitive system directories
+            sensitive_prefixes = ["/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/root"]
+            if any(str(target_path).startswith(p) for p in sensitive_prefixes):
+                raise HTTPException(status_code=403, detail="Indexing system directories is forbidden")
+
+            # Security: Cap workers
+            max_allowed_workers = 32
+            requested_workers = req.workers if req.workers is not None else cfg.indexing.max_workers
+            workers = min(requested_workers, max_allowed_workers)
+
             indexing_service._max_workers = workers  # reuse service instance safely
-            result = await indexing_service.index_directory(Path(req.path))
+            result = await indexing_service.index_directory(target_path)
             return result.__dict__
+        except HTTPException:
+            raise
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            logger.error(f"Error in /index: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal Server Error")
 
     @app.post("/update")
     async def update(req: IndexRequest):
         try:
-            workers = req.workers if req.workers is not None else cfg.indexing.max_workers
+            # Security: Validate path
+            target_path = Path(req.path).resolve()
+            if not target_path.exists():
+                raise HTTPException(status_code=400, detail="Path does not exist")
+            if not target_path.is_dir():
+                raise HTTPException(status_code=400, detail="Path is not a directory")
+
+            # Security: Block sensitive system directories
+            sensitive_prefixes = ["/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/root"]
+            if any(str(target_path).startswith(p) for p in sensitive_prefixes):
+                raise HTTPException(status_code=403, detail="Indexing system directories is forbidden")
+
+            # Security: Cap workers
+            max_allowed_workers = 32
+            requested_workers = req.workers if req.workers is not None else cfg.indexing.max_workers
+            workers = min(requested_workers, max_allowed_workers)
+
             indexing_service._max_workers = workers
-            result = await indexing_service.update_incremental(Path(req.path))
+            result = await indexing_service.update_incremental(target_path)
             return result.__dict__
+        except HTTPException:
+            raise
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            logger.error(f"Error in /update: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal Server Error")
 
     @app.get("/search")
     async def search(
@@ -132,7 +174,8 @@ def create_app() -> FastAPI:
             )
             return {"results": [_to_response_item(r) for r in results]}
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            logger.error(f"Error in /search: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal Server Error")
 
     @app.on_event("shutdown")
     async def shutdown_event():

@@ -1,0 +1,88 @@
+{
+  "language": "python",
+  "description": "Python docstring extraction test cases",
+  "test_cases": [
+    {
+      "id": "py_func_docstring",
+      "description": "Function with docstring",
+      "code": "def add(a, b):\n    \"\"\"Add two numbers.\"\"\"\n    return a + b",
+      "expected": [
+        {
+          "name": "add",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Add two numbers"]
+        }
+      ]
+    },
+    {
+      "id": "py_func_multiline_docstring",
+      "description": "Function with multi-line docstring",
+      "code": "def calculate(x, y):\n    \"\"\"\n    Calculate result.\n    \n    Args:\n        x: First value\n        y: Second value\n    \n    Returns:\n        The result\n    \"\"\"\n    return x + y",
+      "expected": [
+        {
+          "name": "calculate",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Calculate result", "Args:", "Returns:"]
+        }
+      ]
+    },
+    {
+      "id": "py_class_docstring",
+      "description": "Class with docstring",
+      "code": "class User:\n    \"\"\"Represents a user.\"\"\"\n    \n    def __init__(self, name):\n        self.name = name",
+      "expected": [
+        {
+          "name": "User",
+          "node_type": "class",
+          "has_docstring": true,
+          "docstring_contains": ["Represents a user"]
+        }
+      ]
+    },
+    {
+      "id": "py_method_docstring",
+      "description": "Method with docstring",
+      "code": "class Calculator:\n    def multiply(self, a, b):\n        \"\"\"Multiply two numbers.\"\"\"\n        return a * b",
+      "expected": [
+        {
+          "name": "Calculator",
+          "node_type": "class",
+          "has_docstring": false
+        },
+        {
+          "name": "multiply",
+          "node_type": "method",
+          "has_docstring": true,
+          "docstring_contains": ["Multiply two numbers"]
+        }
+      ]
+    },
+    {
+      "id": "py_func_no_docstring",
+      "description": "Function without docstring",
+      "code": "def no_doc():\n    return 42",
+      "expected": [
+        {
+          "name": "no_doc",
+          "node_type": "function",
+          "has_docstring": false
+        }
+      ]
+    },
+    {
+      "id": "py_single_quote_docstring",
+      "description": "Function with single-quote docstring",
+      "code": "def single_quote():\n    '''Single quote docstring.'''\n    return 1",
+      "expected": [
+        {
+          "name": "single_quote",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Single quote docstring"]
+        }
+      ]
+    }
+  ]
+}

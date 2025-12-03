@@ -1,0 +1,87 @@
+{
+  "language": "go",
+  "description": "Go doc comment extraction test cases",
+  "test_cases": [
+    {
+      "id": "go_func_doc_comment",
+      "description": "Function with doc comment (no blank line before comment)",
+      "code": "package main\n// Add adds two numbers.\nfunc Add(a, b int) int {\n    return a + b\n}",
+      "expected": [
+        {
+          "name": "Add",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Add adds two numbers"]
+        }
+      ]
+    },
+    {
+      "id": "go_func_multiline_doc",
+      "description": "Function with multi-line doc comment",
+      "code": "package main\n// Calculate performs a calculation.\n// It takes two integers and returns their sum.\n// This is a longer description.\nfunc Calculate(x, y int) int {\n    return x + y\n}",
+      "expected": [
+        {
+          "name": "Calculate",
+          "node_type": "function",
+          "has_docstring": true,
+          "docstring_contains": ["Calculate performs", "two integers"]
+        }
+      ]
+    },
+    {
+      "id": "go_struct_doc_comment",
+      "description": "Struct with doc comment",
+      "code": "package main\n// User represents a user in the system.\ntype User struct {\n    Name string\n    Age  int\n}",
+      "expected": [
+        {
+          "name": "User",
+          "node_type": "class",
+          "has_docstring": true,
+          "docstring_contains": ["User represents"]
+        }
+      ]
+    },
+    {
+      "id": "go_method_doc_comment",
+      "description": "Method with doc comment",
+      "code": "package main\ntype Calculator struct{}\n// Multiply multiplies two numbers.\nfunc (c *Calculator) Multiply(a, b int) int {\n    return a * b\n}",
+      "expected": [
+        {
+          "name": "Calculator",
+          "node_type": "class",
+          "has_docstring": false
+        },
+        {
+          "name": "Multiply",
+          "node_type": "method",
+          "has_docstring": true,
+          "docstring_contains": ["Multiply multiplies"]
+        }
+      ]
+    },
+    {
+      "id": "go_func_no_doc",
+      "description": "Function without doc comment",
+      "code": "package main\nfunc NoDoc() int {\n    return 42\n}",
+      "expected": [
+        {
+          "name": "NoDoc",
+          "node_type": "function",
+          "has_docstring": false
+        }
+      ]
+    },
+    {
+      "id": "go_blank_line_breaks_doc",
+      "description": "Blank line between comment and function breaks association",
+      "code": "package main\n// This comment is separated.\n\nfunc Separated() int {\n    return 1\n}",
+      "expected": [
+        {
+          "name": "Separated",
+          "node_type": "function",
+          "has_docstring": false
+        }
+      ]
+    }
+  ]
+}

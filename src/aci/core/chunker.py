@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from aci.core.ast_parser import ASTNode
+from aci.core.docstring_formatter import DocstringFormatter
 from aci.core.file_scanner import ScannedFile
 from aci.core.tokenizer import TokenizerInterface
 
@@ -126,6 +127,7 @@ class SmartChunkSplitter:
         file_path: str,
         language: str,
         base_metadata: dict,
+        docstring_prefix: str = "",
     ) -> List[CodeChunk]:
         """
         拆分超大 AST 节点
@@ -168,6 +170,7 @@ class SmartChunkSplitter:
             base_metadata=base_metadata,
             context_prefix=context_prefix,
             max_tokens=max_tokens,
+            docstring_prefix=docstring_prefix,
         )
 
         return chunks
@@ -377,6 +380,7 @@ class SmartChunkSplitter:
         base_metadata: dict,
         context_prefix: str,
         max_tokens: int,
+        docstring_prefix: str = "",
     ) -> List[CodeChunk]:
         """
         Create CodeChunk objects from split points.
@@ -410,8 +414,10 @@ class SmartChunkSplitter:
             chunk_lines = lines[start_idx:end_idx]
             chunk_content = "\n".join(chunk_lines)
 
-            # Add context prefix for continuation chunks (not the first one)
-            if i > 0 and context_prefix:
+            # Add docstring to first chunk, context prefix to continuation chunks
+            if i == 0 and docstring_prefix:
+                chunk_content = f"{docstring_prefix}{chunk_content}"
+            elif i > 0 and context_prefix:
                 chunk_content = context_prefix + chunk_content
 
             # Verify token count (should be within limit, but double-check)
@@ -430,6 +436,8 @@ class SmartChunkSplitter:
             metadata["is_partial"] = True
             metadata["part_index"] = i
             metadata["total_parts"] = len(split_points)
+            if docstring_prefix:
+                metadata["docstring_included_in_chunk"] = i == 0
             if i > 0:
                 metadata["has_context_prefix"] = bool(context_prefix)
 
@@ -453,6 +461,7 @@ class SmartChunkSplitter:
             chunks[0].metadata.pop("is_partial", None)
             chunks[0].metadata.pop("part_index", None)
             chunks[0].metadata.pop("total_parts", None)
+            chunks[0].metadata.pop("docstring_included_in_chunk", None)
 
         return chunks
 
@@ -636,6 +645,7 @@ class Chunker(ChunkerInterface):
         overlap_lines: int = 5,
         import_registry: Optional[ImportExtractorRegistry] = None,
         smart_splitter: Optional[SmartChunkSplitter] = None,
+        docstring_formatter: Optional[DocstringFormatter] = None,
     ):
         """
         Initialize the Chunker.
@@ -654,6 +664,7 @@ class Chunker(ChunkerInterface):
         self._overlap_lines = overlap_lines
         self._import_registry = import_registry or _default_import_registry
         self._smart_splitter = smart_splitter or SmartChunkSplitter(tokenizer)
+        self._doc_formatter = docstring_formatter or DocstringFormatter()
 
     def set_max_tokens(self, max_tokens: int) -> None:
         """Set the maximum token count per chunk."""
@@ -673,6 +684,7 @@ class Chunker(ChunkerInterface):
         base_metadata = {
             "file_hash": file.content_hash,
             "imports": imports,
+            "language": file.language,
         }
 
         if ast_nodes:
@@ -712,11 +724,24 @@ class Chunker(ChunkerInterface):
             elif node.node_type == "class":
                 metadata["class_name"] = node.name
 
+            formatted_docstring = None
+            docstring_prefix = ""
             if node.docstring:
-                metadata["docstring"] = node.docstring
+                formatted_docstring = self._doc_formatter.normalize(
+                    node.docstring, file.language
+                )
+                metadata["docstring"] = formatted_docstring
+                docstring_prefix = (
+                    f"{formatted_docstring}{self._doc_formatter.DELIMITER}"
+                    if formatted_docstring
+                    else ""
+                )
 
             # Check token count and split if necessary
-            token_count = self._tokenizer.count_tokens(node.content)
+            content_with_doc = (
+                f"{docstring_prefix}{node.content}" if docstring_prefix else node.content
+            )
+            token_count = self._tokenizer.count_tokens(content_with_doc)
 
             if token_count <= self._max_tokens:
                 # Node fits within token limit
@@ -724,7 +749,7 @@ class Chunker(ChunkerInterface):
                     file_path=str(file.path),
                     start_line=node.start_line,
                     end_line=node.end_line,
-                    content=node.content,
+                    content=content_with_doc,
                     language=file.language,
                     chunk_type=node.node_type,
                     metadata=metadata,
@@ -738,6 +763,7 @@ class Chunker(ChunkerInterface):
                     file_path=str(file.path),
                     language=file.language,
                     base_metadata=metadata,
+                    docstring_prefix=docstring_prefix,
                 )
                 chunks.extend(sub_chunks)
 

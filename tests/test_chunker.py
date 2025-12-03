@@ -298,7 +298,9 @@ def hello():
         lines = content.split("\n")
         extracted = "\n".join(lines[chunk.start_line - 1 : chunk.end_line])
 
-        assert chunk.content == extracted
+        assert chunk.content.endswith(extracted)
+        # Docstring should be prefixed ahead of code content
+        assert chunk.content.split("\n---\n")[0].strip() == "Docstring."
 
 
 class TestCreateChunker:
