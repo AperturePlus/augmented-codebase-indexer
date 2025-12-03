@@ -1,4 +1,4 @@
-name: Test MCP Server
+name: Tests
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  test-mcp:
+  test:
     runs-on: ubuntu-latest
     
     steps:
@@ -27,10 +27,24 @@ jobs:
       run: |
         uv pip install --system -e ".[dev]"
     
-    - name: Test MCP server
+    - name: Run linting
       run: |
-        uv run pytest tests/test_mcp_server.py -v
+        uv run ruff check src tests
     
-    - name: Check MCP server imports
+    - name: Run type checking
       run: |
-        python -c "from aci.mcp_server import app, list_tools, call_tool; print('✓ MCP server imports successful')"
+        uv run mypy src --ignore-missing-imports --no-error-summary || true
+    
+    - name: Run unit tests
+      run: |
+        uv run pytest tests/ -v --tb=short -q --durations=10
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: test-results
+        path: |
+          .pytest_cache/
+          .hypothesis/
+        retention-days: 7

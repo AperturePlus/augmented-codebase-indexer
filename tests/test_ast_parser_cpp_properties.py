@@ -9,6 +9,19 @@ from hypothesis import strategies as st
 from aci.core.ast_parser import TreeSitterParser
 
 
+# C/C++ reserved keywords to avoid
+CPP_KEYWORDS = {
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if", "int",
+    "long", "register", "return", "short", "signed", "sizeof", "static",
+    "struct", "switch", "typedef", "union", "unsigned", "void", "volatile",
+    "while", "class", "public", "private", "protected", "virtual", "template",
+    "typename", "namespace", "using", "new", "delete", "this", "throw", "try",
+    "catch", "true", "false", "nullptr", "inline", "explicit", "friend",
+    "operator", "mutable", "constexpr", "decltype", "noexcept", "override",
+    "final", "alignas", "alignof", "asm", "bool", "wchar_t",
+}
+
 identifier = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
     min_size=1,
@@ -27,6 +40,8 @@ doc_text = st.text(
 def test_c_cpp_doxygen_property(lang: str, name: str, doc: str):
     """Any C/C++ function with Doxygen comment should surface docstring."""
     assume(name[0].isalpha())
+    # Avoid C/C++ reserved keywords
+    assume(name.lower() not in CPP_KEYWORDS)
     parser = TreeSitterParser()
     code = f"""/** {doc} */
 int {name}() {{
