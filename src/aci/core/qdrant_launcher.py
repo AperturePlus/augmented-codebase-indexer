@@ -38,15 +38,16 @@ def ensure_qdrant_running(
         return
 
     try:
-        # Check if the container already exists
+        # Check if the container already exists (including stopped containers)
+        # Use -aq to include all containers, not just running ones
         inspect = subprocess.run(
-            ["docker", "ps", "-q", "-f", f"name={container_name}"],
+            ["docker", "ps", "-aq", "-f", f"name=^{container_name}$"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if inspect.returncode == 0 and inspect.stdout.strip():
-            # Container exists but port unreachable; try to start
+            # Container exists (running or stopped); try to start it
             subprocess.run(
                 ["docker", "start", container_name],
                 check=False,
@@ -55,7 +56,7 @@ def ensure_qdrant_running(
                 timeout=10,
             )
         else:
-            # Run a new container
+            # Container doesn't exist; run a new one
             subprocess.run(
                 [
                     "docker",

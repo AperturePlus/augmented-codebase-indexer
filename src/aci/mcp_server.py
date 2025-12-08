@@ -7,7 +7,7 @@ Provides Model Context Protocol interface for semantic code search and indexing.
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -21,9 +21,22 @@ from aci.services import IndexingService, SearchMode, SearchService
 # Initialize MCP server
 app = Server("aci-mcp-server")
 
+# Process-level service cache to avoid creating new connections on each call
+_services_cache: Optional[tuple] = None
+
 
 def _get_initialized_services():
-    """Get initialized services for ACI operations."""
+    """
+    Get initialized services for ACI operations.
+    
+    Services are cached at process level to avoid creating new connections
+    (AsyncQdrantClient, httpx.AsyncClient) on each tool call.
+    """
+    global _services_cache
+    
+    if _services_cache is not None:
+        return _services_cache
+    
     (
         cfg,
         embedding_client,
@@ -55,7 +68,62 @@ def _get_initialized_services():
         max_workers=cfg.indexing.max_workers,
     )
 
-    return cfg, search_service, indexing_service, metadata_store, vector_store
+    _services_cache = (
+        cfg,
+        search_service,
+        indexing_service,
+        metadata_store,
+        vector_store,
+        reranker,
+        embedding_client,
+    )
+    return _services_cache[:5]  # Return original 5-tuple for compatibility
+
+
+async def _cleanup_services():
+    """Clean up cached services and close connections."""
+    global _services_cache
+    
+    if _services_cache is None:
+        return
+    
+    (
+        cfg,
+        search_service,
+        indexing_service,
+        metadata_store,
+        vector_store,
+        reranker,
+        embedding_client,
+    ) = _services_cache
+    
+    # Close vector store connection
+    close_fn = getattr(vector_store, "close", None)
+    if close_fn:
+        result = close_fn()
+        if asyncio.iscoroutine(result):
+            await result
+    
+    # Close reranker connection
+    if reranker:
+        aclose_fn = getattr(reranker, "aclose", None)
+        if aclose_fn:
+            result = aclose_fn()
+            if asyncio.iscoroutine(result):
+                await result
+    
+    # Close embedding client connection
+    aclose_fn = getattr(embedding_client, "aclose", None)
+    if aclose_fn:
+        result = aclose_fn()
+        if asyncio.iscoroutine(result):
+            await result
+    
+    # Close metadata store
+    if metadata_store:
+        metadata_store.close()
+    
+    _services_cache = None
 
 
 @app.list_tools()
@@ -351,8 +419,12 @@ async def _handle_list_repos(arguments: dict) -> list[TextContent]:
 
 async def main():
     """Run the MCP server."""
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(read_stream, write_stream, app.create_initialization_options())
+    finally:
+        # Clean up connections on shutdown
+        await _cleanup_services()
 
 
 if __name__ == "__main__":

@@ -6,39 +6,42 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "ACI Team" }
+    { name = "ACI Team" },
 ]
 keywords = ["code-search", "semantic-search", "ast", "embeddings", "qdrant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
 
+# 运行时核心依赖（字母顺序）
 dependencies = [
-    "tree-sitter>=0.21.0",
-    "tree-sitter-python>=0.21.0",
-    "tree-sitter-javascript>=0.21.0",
-    "qdrant-client>=1.9.0",
-    "httpx>=0.25.0",
-    "typer>=0.9.0",
     "fastapi>=0.111.0",
-    "uvicorn>=0.23.0",
+    "httpx>=0.25.0",
+    "mcp>=1.0.0",
+    "pathspec>=0.11.0",
+    "prompt_toolkit>=3.0.0",
     "python-dotenv>=1.0.1",
-    "tree-sitter-java>=0.21.0",
+    "pyyaml>=6.0",
+    "qdrant-client>=1.9.0",
+    "tiktoken>=0.5.0",
+    "tree-sitter>=0.21.0",
     "tree-sitter-c>=0.21.0",
     "tree-sitter-cpp>=0.21.0",
-    "pyyaml>=6.0",
-    "tiktoken>=0.5.0",
-    "pathspec>=0.11.0",
-    "tree-sitter-go>=0.25.0",
-    "mcp>=1.0.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "hypothesis>=6.92.0",
-    "pytest-asyncio>=0.21.0",
-    "ruff>=0.1.0",
-]
-rerank = [
-    "sentence-transformers>=2.2.0",
+    "tree-sitter-go>=0.21.0",
+    "tree-sitter-java>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-python>=0.21.0",
+    "typer>=0.9.0",
+    "uvicorn>=0.23.0",
 ]
 
 [project.scripts]
@@ -50,16 +53,114 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aci"]
+only-include = ["src/aci"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-pythonpath = ["src"]
+[tool.hatch.version]
+path = "src/aci/__init__.py"
+
+# ==================== 依赖分组 ====================
+
+[dependency-groups]
+# 测试套件
+test = [
+    "hypothesis>=6.92.0",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+]
+
+# 代码质量工具
+lint = [
+    "pre-commit>=3.5.0",
+    "ruff>=0.1.0",
+]
+
+# 类型检查
+typecheck = [
+    "mypy>=1.7.0",
+]
+
+# 构建与发布
+build = [
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+
+# 完整开发环境（组合所有分组）
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "typecheck" },
+    { include-group = "build" },
+]
+
+# 用户可选功能扩展
+rerank = [
+    "sentence-transformers>=2.2.0",
+]
+
+# 性能优化（生产环境推荐）
+performance = [
+    "orjson>=3.9.0",
+    "uvloop>=0.19.0; sys_platform != 'win32'",
+]
+
+# ==================== 工具配置 ====================
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = [
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "E",   # pycodestyle 错误
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # PEP8 命名
+    "S",   # flake8-bandit（安全）
+    "T201", # 禁止 print
+    "UP",  # pyupgrade
+    "W",   # pycodestyle 警告
+]
+ignore = [
+    "E501",  # 行长度由格式化器处理
+    "S101",  # 允许 assert（测试需要）
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aci"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "-q",
+]
+markers = [
+    "slow: 慢速测试",
+    "integration: 集成测试",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.__:",
+    "raise NotImplementedError",
+]
+
+[tool.uv]
+# 设置默认同步的分组
+default-groups = ["dev"]

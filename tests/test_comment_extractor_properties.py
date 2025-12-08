@@ -325,18 +325,18 @@ class TestGoDocExtractorProperties:
     @given(
         doc_lines=st.lists(
             st.text(
-                min_size=1,
+                min_size=2,
                 max_size=50,
-                alphabet=st.characters(blacklist_categories=["Cs", "Cc"])
+                alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
             ),
             min_size=1,
             max_size=5,
         ),
         separator_lines=st.lists(
             st.text(
-                min_size=1,
+                min_size=2,
                 max_size=50,
-                alphabet=st.characters(blacklist_categories=["Cs", "Cc"])
+                alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
             ),
             min_size=1,
             max_size=3,

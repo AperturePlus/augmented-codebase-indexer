@@ -325,16 +325,21 @@ class IndexingService:
                             all_chunks.extend(chunks)
                             result.total_files += 1
                             
-                            # Update metadata
-                            self._metadata_store.upsert_file(IndexedFileInfo(
-                                file_path=file_path,
-                                content_hash=content_hash,
-                                language=language,
-                                line_count=line_count,
-                                chunk_count=len(chunks),
-                                indexed_at=datetime.now(),
-                                modified_time=scanned_file.modified_time,
-                            ))
+                            # Store file info for later metadata update (after embedding succeeds)
+                            # We attach metadata to chunks so we can update after embedding
+                            for chunk in chunks:
+                                chunk.metadata["_pending_file_info"] = {
+                                    "file_path": file_path,
+                                    "content_hash": content_hash,
+                                    "language": language,
+                                    "line_count": line_count,
+                                    "chunk_count": len(chunks),
+                                    "modified_time": scanned_file.modified_time,
+                                }
+                            
+                            # NOTE: Metadata is now written in _embed_and_store_chunks after successful embedding
+                            # Old code that wrote metadata here has been removed to prevent
+                            # metadata being written before embedding succeeds
                             
                     except Exception as e:
                         logger.error(f"Failed to process {scanned_file.path}: {e}")
@@ -383,18 +388,17 @@ class IndexingService:
                     all_chunks.extend(processed.chunks)
                     result.total_files += 1
 
-                    # Update metadata
-                    self._metadata_store.upsert_file(
-                        IndexedFileInfo(
-                            file_path=processed.file_path,
-                            content_hash=processed.content_hash,
-                            language=processed.language,
-                            line_count=processed.line_count,
-                            chunk_count=len(processed.chunks),
-                            indexed_at=datetime.now(),
-                            modified_time=scanned_file.modified_time,
-                        )
-                    )
+                    # Store file info for later metadata update (after embedding succeeds)
+                    for chunk in processed.chunks:
+                        chunk.metadata["_pending_file_info"] = {
+                            "file_path": processed.file_path,
+                            "content_hash": processed.content_hash,
+                            "language": processed.language,
+                            "line_count": processed.line_count,
+                            "chunk_count": len(processed.chunks),
+                            "modified_time": scanned_file.modified_time,
+                        }
+                    # NOTE: Metadata is now written in _embed_and_store_chunks after successful embedding
             except Exception as e:
                 logger.error(f"Failed to process {scanned_file.path}: {e}")
                 result.failed_files.append(str(scanned_file.path))
@@ -447,11 +451,16 @@ class IndexingService:
     async def _embed_and_store_chunks(self, chunks: List[CodeChunk]) -> None:
         """
         Generate embeddings and store chunks in batches.
+        
+        Also updates metadata store after successful embedding to ensure
+        metadata is only written when embedding/storage succeeds.
 
         Args:
             chunks: List of chunks to embed and store
         """
         total_chunks = len(chunks)
+        # Track which files have been successfully embedded
+        successfully_embedded_files: dict[str, dict] = {}
 
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
@@ -464,6 +473,9 @@ class IndexingService:
 
             # Store in vector store
             for chunk, embedding in zip(batch, embeddings):
+                # Extract pending file info before creating payload
+                pending_info = chunk.metadata.pop("_pending_file_info", None)
+                
                 payload = {
                     "file_path": chunk.file_path,
                     "start_line": chunk.start_line,
@@ -474,11 +486,29 @@ class IndexingService:
                     **chunk.metadata,
                 }
                 await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
+                
+                # Track successfully embedded file info for metadata update
+                if pending_info and pending_info["file_path"] not in successfully_embedded_files:
+                    successfully_embedded_files[pending_info["file_path"]] = pending_info
 
             self._report_progress(
                 min(i + self._batch_size, total_chunks),
                 total_chunks,
                 f"Embedded {min(i + self._batch_size, total_chunks)} chunks",
+            )
+        
+        # Update metadata store only after all embeddings succeed
+        for file_path, info in successfully_embedded_files.items():
+            self._metadata_store.upsert_file(
+                IndexedFileInfo(
+                    file_path=info["file_path"],
+                    content_hash=info["content_hash"],
+                    language=info["language"],
+                    line_count=info["line_count"],
+                    chunk_count=info["chunk_count"],
+                    indexed_at=datetime.now(),
+                    modified_time=info["modified_time"],
+                )
             )
 
     async def update_incremental(self, root_path: Path) -> IndexingResult:

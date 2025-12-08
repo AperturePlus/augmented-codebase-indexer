@@ -27,12 +27,13 @@ from aci.core.config import load_config
 from aci.core.file_scanner import FileScanner
 from aci.core.qdrant_launcher import ensure_qdrant_running
 from aci.infrastructure import (
+    GrepSearcher,
     IndexMetadataStore,
     create_embedding_client,
     create_metadata_store,
     create_vector_store,
 )
-from aci.services import IndexingService, SearchService
+from aci.services import IndexingService, SearchMode, SearchService
 from aci.services.reranker import (
     OpenAICompatibleReranker,
     SimpleReranker,
@@ -231,10 +232,14 @@ def search(
             )
             use_rerank = False
 
+        # Create GrepSearcher for hybrid search support
+        grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
+
         search_service = SearchService(
             embedding_client=embedding_client,
             vector_store=vector_store,
             reranker=reranker,
+            grep_searcher=grep_searcher,
             default_limit=actual_limit,
         )
 
