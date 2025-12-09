@@ -1,6 +1,6 @@
 [project]
 name = "aci"
-version = "0.1.0"
+version = "0.2.0"
 description = "Augmented Codebase Indexer - Semantic code search with precise line-level location results"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,7 +53,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["src/aci"]
+packages = ["src/aci"]
+sources = ["src"]
 
 [tool.hatch.version]
 path = "src/aci/__init__.py"
@@ -160,7 +161,3 @@ exclude_lines = [
     "if __name__ == .__main__.__:",
     "raise NotImplementedError",
 ]
-
-[tool.uv]
-# 设置默认同步的分组
-default-groups = ["dev"]

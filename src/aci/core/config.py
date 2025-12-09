@@ -91,7 +91,18 @@ class IndexingConfig:
 
     file_extensions: list[str] = field(
         default_factory=lambda: _get_default(
-            "indexing", "file_extensions", [".py", ".js", ".ts", ".go"]
+            "indexing",
+            "file_extensions",
+            [
+                # Core languages with Tree-sitter support
+                ".py", ".pyw", ".pyi",  # Python
+                ".js", ".jsx", ".mjs", ".cjs",  # JavaScript
+                ".ts", ".tsx", ".mts", ".cts",  # TypeScript
+                ".go",  # Go
+                ".java",  # Java
+                ".c", ".h",  # C
+                ".cpp", ".cc", ".cxx", ".hpp", ".hxx",  # C++
+            ],
         )
     )
     ignore_patterns: list[str] = field(

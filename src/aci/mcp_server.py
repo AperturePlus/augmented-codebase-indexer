@@ -6,6 +6,7 @@ Provides Model Context Protocol interface for semantic code search and indexing.
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,6 +24,12 @@ app = Server("aci-mcp-server")
 
 # Process-level service cache to avoid creating new connections on each call
 _services_cache: Optional[tuple] = None
+
+# Lock to prevent concurrent indexing operations from corrupting shared state
+_indexing_lock = asyncio.Lock()
+
+# Maximum allowed workers (matches HTTP API limit)
+MAX_WORKERS = 32
 
 
 def _get_initialized_services():
@@ -112,10 +119,10 @@ async def _cleanup_services():
             if asyncio.iscoroutine(result):
                 await result
     
-    # Close embedding client connection
-    aclose_fn = getattr(embedding_client, "aclose", None)
-    if aclose_fn:
-        result = aclose_fn()
+    # Close embedding client connection (method is 'close', not 'aclose')
+    close_fn = getattr(embedding_client, "close", None)
+    if close_fn:
+        result = close_fn()
         if asyncio.iscoroutine(result):
             await result
     
@@ -249,10 +256,17 @@ async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
 
     cfg, _, indexing_service, _, _ = _get_initialized_services()
 
+    # Cap workers to prevent resource exhaustion (matches HTTP API limit)
+    cpu_count = os.cpu_count() or 4
     if workers is not None:
-        indexing_service._max_workers = workers
+        workers = min(workers, MAX_WORKERS, cpu_count * 2)
+    else:
+        workers = min(cfg.indexing.max_workers, MAX_WORKERS, cpu_count * 2)
 
-    result = await indexing_service.index_directory(path)
+    # Use lock to prevent concurrent indexing operations
+    async with _indexing_lock:
+        indexing_service._max_workers = workers
+        result = await indexing_service.index_directory(path)
 
     response = {
         "status": "success",
@@ -377,19 +391,21 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
     if not path.is_dir():
         return [TextContent(type="text", text=f"Error: Path is not a directory: {path}")]
 
-    _, _, indexing_service, _, _ = _get_initialized_services()
+    cfg, _, indexing_service, _, _ = _get_initialized_services()
 
-    result = await indexing_service.update_incremental(path)
+    # Use lock to prevent concurrent indexing operations
+    async with _indexing_lock:
+        result = await indexing_service.update_incremental(path)
 
-    response = {
-        "status": "success",
-        "new_files": result.new_files,
-        "modified_files": result.modified_files,
-        "deleted_files": result.deleted_files,
-        "duration_seconds": result.duration_seconds,
-    }
+        response = {
+            "status": "success",
+            "new_files": result.new_files,
+            "modified_files": result.modified_files,
+            "deleted_files": result.deleted_files,
+            "duration_seconds": result.duration_seconds,
+        }
 
-    return [TextContent(type="text", text=json.dumps(response, indent=2))]
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
 
 async def _handle_list_repos(arguments: dict) -> list[TextContent]:

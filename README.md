@@ -36,6 +36,9 @@ aci update
 # Reset index (drop collection & metadata)
 aci reset
 
+# Start interactive shell mode
+aci shell
+
 # Start HTTP server (FastAPI)
 aci serve --host 0.0.0.0 --port 8000
 
@@ -46,6 +49,60 @@ uv run python -m aci serve  # when using uv
 aci-mcp
 # or
 uv run aci-mcp
+```
+
+## Interactive Shell Mode
+
+ACI provides an interactive shell mode that allows you to execute multiple commands without restarting the program each time. This is especially useful for iterative workflows like indexing, searching, and refining queries.
+
+### Starting the Shell
+
+```bash
+aci shell
+```
+
+This launches an interactive REPL (Read-Eval-Print Loop) with:
+- Command history (up/down arrows to navigate)
+- Tab completion for commands
+- Persistent history across sessions
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `index <path>` | Index a directory for semantic search |
+| `search <query>` | Search the indexed codebase |
+| `status` | Show index status and statistics |
+| `update <path>` | Incrementally update the index |
+| `list` | List all indexed repositories |
+| `reset` | Clear the index (requires confirmation) |
+| `help` or `?` | Display available commands |
+| `exit`, `quit`, or `q` | Exit the shell |
+
+### Example Session
+
+```
+$ aci shell
+
+    _    ____ ___   ____  _          _ _ 
+   / \  / ___|_ _| / ___|| |__   ___| | |
+  / _ \| |    | |  \___ \| '_ \ / _ \ | |
+ / ___ \ |___ | |   ___) | | | |  __/ | |
+/_/   \_\____|___| |____/|_| |_|\___|_|_|
+
+Welcome to ACI Interactive Shell
+Type 'help' for available commands, 'exit' to quit
+
+aci> index ./src
+Indexing ./src...
+✓ Indexed 42 files, 156 chunks
+
+aci> search "authentication handler"
+Found 3 results:
+...
+
+aci> exit
+Goodbye!
 ```
 
 ## MCP Integration

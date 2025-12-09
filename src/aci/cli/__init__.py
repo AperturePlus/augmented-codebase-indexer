@@ -5,7 +5,6 @@ Provides command-line interface for indexing and searching codebases.
 """
 
 import asyncio
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +24,7 @@ from rich.table import Table
 from aci.core.chunker import create_chunker
 from aci.core.config import load_config
 from aci.core.file_scanner import FileScanner
+from aci.core.path_utils import validate_indexable_path
 from aci.core.qdrant_launcher import ensure_qdrant_running
 from aci.infrastructure import (
     GrepSearcher,
@@ -120,6 +120,12 @@ def index(
     ),
 ):
     """Index a directory for semantic search."""
+    # Validate path before proceeding
+    validation = validate_indexable_path(path)
+    if not validation.valid:
+        console.print(f"[bold red]Error:[/bold red] {validation.error_message}")
+        raise typer.Exit(1)
+
     console.print(f"[bold blue]Indexing[/bold blue] {path}...")
 
     try:
@@ -201,6 +207,9 @@ def search(
     file_filter: Optional[str] = typer.Option(
         None, "--filter", "-f", help="File path filter (glob)"
     ),
+    path: Optional[Path] = typer.Option(
+        None, "--path", "-p", help="Target codebase path to search"
+    ),
     rerank: Optional[bool] = typer.Option(
         None, "--rerank/--no-rerank", help="Enable/disable reranking"
     ),
@@ -221,6 +230,26 @@ def search(
             config_reranker,
         ) = get_services()
 
+        # Determine the search base path
+        search_base = path if path is not None else Path.cwd()
+        
+        # Validate path if provided
+        if path is not None:
+            if not path.exists():
+                console.print(f"[bold red]Error:[/bold red] Path '{path}' does not exist")
+                raise typer.Exit(1)
+            if not path.is_dir():
+                console.print(f"[bold red]Error:[/bold red] Path '{path}' is not a directory")
+                raise typer.Exit(1)
+            # Check if path is indexed
+            resolved = str(path.resolve())
+            if metadata_store.get_index_info(resolved) is None:
+                console.print(
+                    f"[bold red]Error:[/bold red] Path '{path}' has not been indexed. "
+                    f"Run 'aci index {path}' first."
+                )
+                raise typer.Exit(1)
+
         # Use config values if not overridden by CLI
         actual_limit = limit if limit is not None else cfg.search.default_limit
         use_rerank = rerank if rerank is not None else cfg.search.use_rerank
@@ -233,7 +262,7 @@ def search(
             use_rerank = False
 
         # Create GrepSearcher for hybrid search support
-        grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
+        grep_searcher = GrepSearcher(base_path=str(search_base))
 
         search_service = SearchService(
             embedding_client=embedding_client,
@@ -301,6 +330,12 @@ def update(
     path: Path = typer.Argument(..., help="Directory to update"),
 ):
     """Incrementally update the index."""
+    # Validate path before proceeding
+    validation = validate_indexable_path(path)
+    if not validation.valid:
+        console.print(f"[bold red]Error:[/bold red] {validation.error_message}")
+        raise typer.Exit(1)
+
     console.print(f"[bold blue]Updating index for[/bold blue] {path}...")
 
     try:
@@ -522,6 +557,28 @@ def serve(
     except ImportError:
          console.print("[bold red]Error:[/bold red] Could not import create_app. Ensure aci package is installed correctly.")
          raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def shell():
+    """Start interactive REPL mode for executing multiple commands."""
+    try:
+        from aci.cli.repl import REPLController
+        from aci.cli.services import create_services
+
+        # Initialize services once
+        console.print("[dim]Initializing services...[/dim]")
+        services = create_services()
+
+        # Create and run REPL controller
+        repl = REPLController(services=services, console=console)
+        repl.run()
+
+    except KeyboardInterrupt:
+        console.print("\n[cyan]Goodbye![/cyan]")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)

@@ -11,3 +11,5 @@ uv.lock
 .pytest_cache/
 .aci/
 .venv-wsl
+.uvenv/
+.uv_cache/

@@ -13,11 +13,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from aci.cli import get_services
+from aci.core.path_utils import is_system_directory
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
 from aci.services import IndexingService, SearchMode, SearchService
 
 logger = logging.getLogger(__name__)
+
+# Lock to prevent concurrent indexing operations from corrupting shared state
+_indexing_lock = asyncio.Lock()
 
 
 class IndexRequest(BaseModel):
@@ -114,9 +118,8 @@ def create_app() -> FastAPI:
             if not target_path.is_dir():
                 raise HTTPException(status_code=400, detail="Path is not a directory")
 
-            # Security: Block sensitive system directories
-            sensitive_prefixes = ["/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/root"]
-            if any(str(target_path).startswith(p) for p in sensitive_prefixes):
+            # Security: Block sensitive system directories (platform-aware)
+            if is_system_directory(target_path):
                 raise HTTPException(status_code=403, detail="Indexing system directories is forbidden")
 
             # Security: Cap workers
@@ -124,9 +127,11 @@ def create_app() -> FastAPI:
             requested_workers = req.workers if req.workers is not None else cfg.indexing.max_workers
             workers = min(requested_workers, max_allowed_workers)
 
-            indexing_service._max_workers = workers  # reuse service instance safely
-            result = await indexing_service.index_directory(target_path)
-            return result.__dict__
+            # Use lock to prevent concurrent indexing operations
+            async with _indexing_lock:
+                indexing_service._max_workers = workers
+                result = await indexing_service.index_directory(target_path)
+                return result.__dict__
         except HTTPException:
             raise
         except Exception as exc:
@@ -143,9 +148,8 @@ def create_app() -> FastAPI:
             if not target_path.is_dir():
                 raise HTTPException(status_code=400, detail="Path is not a directory")
 
-            # Security: Block sensitive system directories
-            sensitive_prefixes = ["/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/root"]
-            if any(str(target_path).startswith(p) for p in sensitive_prefixes):
+            # Security: Block sensitive system directories (platform-aware)
+            if is_system_directory(target_path):
                 raise HTTPException(status_code=403, detail="Indexing system directories is forbidden")
 
             # Security: Cap workers
@@ -153,9 +157,11 @@ def create_app() -> FastAPI:
             requested_workers = req.workers if req.workers is not None else cfg.indexing.max_workers
             workers = min(requested_workers, max_allowed_workers)
 
-            indexing_service._max_workers = workers
-            result = await indexing_service.update_incremental(target_path)
-            return result.__dict__
+            # Use lock to prevent concurrent indexing operations
+            async with _indexing_lock:
+                indexing_service._max_workers = workers
+                result = await indexing_service.update_incremental(target_path)
+                return result.__dict__
         except HTTPException:
             raise
         except Exception as exc:
@@ -204,11 +210,26 @@ def create_app() -> FastAPI:
             maybe_coro = close()
             if asyncio.iscoroutine(maybe_coro):
                 await maybe_coro
+
+        # Close reranker if supported
         if reranker:
             aclose = getattr(reranker, "aclose", None)
             if aclose:
                 maybe_coro = aclose()
                 if asyncio.iscoroutine(maybe_coro):
                     await maybe_coro
+
+        # Close embedding client (method is 'close', not 'aclose')
+        close_embed = getattr(embedding_client, "close", None)
+        if close_embed:
+            maybe_coro = close_embed()
+            if asyncio.iscoroutine(maybe_coro):
+                await maybe_coro
+
+        # Close metadata store
+        if metadata_store:
+            close_meta = getattr(metadata_store, "close", None)
+            if close_meta:
+                close_meta()
 
     return app

@@ -345,6 +345,9 @@ class FileScanner(FileScannerInterface):
             "build",
             ".tox",
             ".pytest_cache",
+            ".uv_cache",
+            ".ruff_cache",
+            ".hypothesis",
         ]
         self._language_registry = language_registry or _default_registry
         self._pathspec: pathspec.PathSpec | None = None
@@ -416,6 +419,7 @@ class FileScanner(FileScannerInterface):
             - Only yields files with configured extensions
             - Logs errors and continues on unreadable files
             - Detects and prevents infinite recursion from symlink loops
+            - Automatically loads .gitignore patterns from root_path
         """
         root_path = Path(root_path).resolve()
 
@@ -427,9 +431,43 @@ class FileScanner(FileScannerInterface):
             logger.error(f"Root path is not a directory: {root_path}")
             return
 
+        # Load .gitignore patterns from root path if present
+        self._load_gitignore(root_path)
+
         # Track visited real paths to prevent cycles
         visited = set()
         yield from self._scan_directory(root_path, root_path, visited)
+
+    def _load_gitignore(self, root_path: Path) -> None:
+        """
+        Load additional ignore patterns from .gitignore file.
+
+        Args:
+            root_path: Root directory containing .gitignore
+        """
+        gitignore_path = root_path / ".gitignore"
+        if not gitignore_path.exists():
+            return
+
+        try:
+            content = gitignore_path.read_text(encoding="utf-8")
+            gitignore_patterns = []
+            for line in content.splitlines():
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith("#"):
+                    gitignore_patterns.append(line)
+
+            if gitignore_patterns:
+                # Merge with existing patterns (avoid duplicates)
+                existing = set(self._ignore_patterns)
+                for pattern in gitignore_patterns:
+                    if pattern not in existing:
+                        self._ignore_patterns.append(pattern)
+                self._update_pathspec()
+                logger.debug(f"Loaded {len(gitignore_patterns)} patterns from .gitignore")
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Failed to read .gitignore: {e}")
 
     def _scan_directory(
         self, current_path: Path, root_path: Path, visited: Set[Path]
