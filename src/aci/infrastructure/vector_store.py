@@ -17,6 +17,19 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 logger = logging.getLogger(__name__)
 
 
+def _is_glob_pattern(path: str) -> bool:
+    """
+    Check if a path contains glob wildcard characters.
+    
+    Args:
+        path: File path to check
+        
+    Returns:
+        True if path contains *, ?, or [ characters (glob wildcards)
+    """
+    return any(c in path for c in "*?[")
+
+
 class VectorStoreError(Exception):
     """Base exception for vector store errors."""
 
@@ -305,7 +318,7 @@ class QdrantVectorStore(VectorStoreInterface):
         Args:
             query_vector: Query embedding vector
             limit: Maximum results to return
-            file_filter: Optional glob pattern for file paths
+            file_filter: Optional glob pattern or exact file path
 
         Returns:
             List of SearchResult sorted by score descending
@@ -314,14 +327,28 @@ class QdrantVectorStore(VectorStoreInterface):
         client = await self._get_client()
 
         try:
-            # Build filter if file_filter is provided
-            search_filter = None
-            if file_filter:
-                # For glob patterns, we need to fetch more and filter client-side
-                # Qdrant doesn't support glob matching natively
-                pass
+            # Determine if file_filter is an exact path or glob pattern
+            # Exact paths have no glob wildcards: *, ?, [
+            is_exact_path = file_filter and not _is_glob_pattern(file_filter)
 
-            fetch_limit = limit * 5 if file_filter else limit
+            # Build filter and determine fetch limit
+            search_filter = None
+            if is_exact_path:
+                # Server-side exact match filter - more efficient and complete
+                search_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="file_path",
+                            match=models.MatchValue(value=file_filter),
+                        )
+                    ]
+                )
+                fetch_limit = limit  # Exact match, no need to over-fetch
+            elif file_filter:
+                # Glob pattern - need client-side filtering with larger fetch
+                fetch_limit = limit * 10  # Increased from 5x to 10x for better recall
+            else:
+                fetch_limit = limit
 
             # Prefer query_points (available in modern clients)
             try:
@@ -346,12 +373,16 @@ class QdrantVectorStore(VectorStoreInterface):
             # query_points returns a models.QueryResponse; for sync fallback, we will return list of ScoredPoint
             points = results if isinstance(results, list) else getattr(results, "points", results)
 
+            # Determine if client-side filtering is needed (glob patterns only)
+            needs_client_filter = file_filter and _is_glob_pattern(file_filter)
+
             for point in points:
                 payload = point.payload or {}
                 file_path = payload.get("file_path", "")
 
-                # Apply glob filter if specified
-                if file_filter and not fnmatch.fnmatch(file_path, file_filter):
+                # Apply glob filter client-side if needed
+                # Exact path matches are handled server-side
+                if needs_client_filter and not fnmatch.fnmatch(file_path, file_filter):
                     continue
 
                 search_results.append(

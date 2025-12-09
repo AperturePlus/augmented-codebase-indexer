@@ -174,6 +174,61 @@ def _apply_exclusions(
     return filtered
 
 
+def _normalize_scores(
+    grep_results: List[SearchResult],
+    vector_results: List[SearchResult],
+) -> tuple[List[SearchResult], List[SearchResult]]:
+    """
+    Normalize grep and vector scores to a comparable range.
+
+    Strategy: Scale grep scores relative to the maximum vector score.
+    Grep results represent exact matches and should have high but not
+    overwhelming scores compared to semantic matches.
+
+    Args:
+        grep_results: Results from grep search (typically score=1.0)
+        vector_results: Results from vector search (typically 0.0-1.0)
+
+    Returns:
+        Tuple of (normalized_grep_results, vector_results)
+        Vector results are returned unchanged.
+    """
+    if not grep_results or not vector_results:
+        # No normalization needed if either is empty
+        return grep_results, vector_results
+
+    # Find max vector score
+    max_vector_score = max(r.score for r in vector_results)
+
+    if max_vector_score <= 0:
+        # Avoid division issues, return as-is
+        return grep_results, vector_results
+
+    # Scale grep scores: max grep score should equal max vector score
+    # This ensures grep results don't dominate but remain competitive
+    max_grep_score = max(r.score for r in grep_results)
+    if max_grep_score <= 0:
+        return grep_results, vector_results
+
+    scale_factor = max_vector_score / max_grep_score
+
+    normalized_grep = []
+    for result in grep_results:
+        normalized_grep.append(
+            SearchResult(
+                chunk_id=result.chunk_id,
+                file_path=result.file_path,
+                start_line=result.start_line,
+                end_line=result.end_line,
+                content=result.content,
+                score=result.score * scale_factor,
+                metadata=result.metadata,
+            )
+        )
+
+    return normalized_grep, vector_results
+
+
 class RerankerInterface(ABC):
     """Interface for re-ranking search results."""
 
@@ -276,6 +331,9 @@ class SearchService:
         # Use clean query for search
         search_query = clean_query if clean_query else query
 
+        # Determine if reranking will be applied
+        will_rerank = use_rerank and self._reranker is not None
+
         # Execute searches based on mode
         vector_results: List[SearchResult] = []
         grep_results: List[SearchResult] = []
@@ -283,12 +341,19 @@ class SearchService:
         if search_mode == SearchMode.HYBRID:
             # Run both searches in parallel
             vector_results, grep_results = await self._execute_hybrid_search(
-                search_query, effective_filter
+                search_query, effective_filter, use_rerank=will_rerank
             )
         elif search_mode == SearchMode.VECTOR:
-            vector_results = await self._execute_vector_search(search_query, effective_filter)
+            vector_results = await self._execute_vector_search(
+                search_query, effective_filter, use_rerank=will_rerank
+            )
         elif search_mode == SearchMode.GREP:
             grep_results = await self._execute_grep_search(search_query, effective_filter)
+
+        # Normalize scores for hybrid search without reranking
+        # This ensures grep results (score=1.0) don't dominate vector results
+        if vector_results and grep_results and not will_rerank:
+            grep_results, vector_results = _normalize_scores(grep_results, vector_results)
 
         # Merge and deduplicate results
         if vector_results and grep_results:
@@ -321,18 +386,34 @@ class SearchService:
         return results
 
     async def _execute_vector_search(
-        self, query: str, file_filter: Optional[str]
+        self, query: str, file_filter: Optional[str], use_rerank: bool = False
     ) -> List[SearchResult]:
-        """Execute vector search and return results."""
+        """Execute vector search and return results.
+        
+        Args:
+            query: Search query text
+            file_filter: Optional glob pattern for file paths
+            use_rerank: Whether reranking will be applied (affects candidate count)
+            
+        Returns:
+            List of SearchResult from vector search
+        """
         try:
             # Generate query embedding
             embeddings = await self._embedding_client.embed_batch([query])
             query_vector = embeddings[0]
 
+            # Calculate fetch limit based on reranking
+            # When reranking, fetch more candidates to give reranker better selection
+            if use_rerank and self._reranker:
+                fetch_limit = self._vector_candidates * self._recall_multiplier
+            else:
+                fetch_limit = self._vector_candidates
+
             # Search vector store
             return await self._vector_store.search(
                 query_vector=query_vector,
-                limit=self._vector_candidates,
+                limit=fetch_limit,
                 file_filter=file_filter,
             )
         except Exception as e:
@@ -361,11 +442,20 @@ class SearchService:
             return []
 
     async def _execute_hybrid_search(
-        self, query: str, file_filter: Optional[str]
+        self, query: str, file_filter: Optional[str], use_rerank: bool = False
     ) -> tuple[List[SearchResult], List[SearchResult]]:
-        """Execute both vector and grep search in parallel."""
+        """Execute both vector and grep search in parallel.
+        
+        Args:
+            query: Search query text
+            file_filter: Optional glob pattern for file paths
+            use_rerank: Whether reranking will be applied
+            
+        Returns:
+            Tuple of (vector_results, grep_results)
+        """
         try:
-            vector_task = self._execute_vector_search(query, file_filter)
+            vector_task = self._execute_vector_search(query, file_filter, use_rerank)
             grep_task = self._execute_grep_search(query, file_filter)
 
             vector_results, grep_results = await asyncio.gather(

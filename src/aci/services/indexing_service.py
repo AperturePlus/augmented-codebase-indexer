@@ -29,6 +29,22 @@ from aci.infrastructure.vector_store import VectorStoreInterface
 logger = logging.getLogger(__name__)
 
 
+class IndexingError(Exception):
+    """Raised when indexing fails due to embedding count mismatch or other errors."""
+
+    def __init__(
+        self,
+        message: str,
+        batch_index: Optional[int] = None,
+        expected: Optional[int] = None,
+        actual: Optional[int] = None,
+    ):
+        self.batch_index = batch_index
+        self.expected = expected
+        self.actual = actual
+        super().__init__(message)
+
+
 
 # Global variables for worker processes
 _worker_parser: Optional[ASTParserInterface] = None
@@ -465,6 +481,9 @@ class IndexingService:
 
         Args:
             chunks: List of chunks to embed and store
+            
+        Raises:
+            IndexingError: If embedding API returns fewer vectors than expected
         """
         total_chunks = len(chunks)
         # Track which files have been successfully embedded
@@ -472,12 +491,25 @@ class IndexingService:
 
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
+            batch_index = i // self._batch_size
 
             # Extract texts for embedding
             texts = [chunk.content for chunk in batch]
 
             # Generate embeddings
             embeddings = await self._embedding_client.embed_batch(texts)
+
+            # Validate embedding count matches input count
+            # This prevents silent data loss when API returns partial results
+            if len(embeddings) != len(texts):
+                raise IndexingError(
+                    f"Embedding count mismatch in batch {batch_index}: "
+                    f"expected {len(texts)}, got {len(embeddings)}. "
+                    f"This may indicate API rate limiting or content issues.",
+                    batch_index=batch_index,
+                    expected=len(texts),
+                    actual=len(embeddings),
+                )
 
             # Store in vector store
             for chunk, embedding in zip(batch, embeddings):
