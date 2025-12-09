@@ -334,20 +334,25 @@ class FileScanner(FileScannerInterface):
         """
         self._extensions: Set[str] = extensions or {".py", ".js", ".ts", ".go"}
         self._ignore_patterns: list[str] = ignore_patterns or [
+            # Hidden files/directories (Unix-style and Windows system folders)
+            ".*",
+            "$*",
+            # Python
             "__pycache__",
             "*.pyc",
-            ".git",
-            "node_modules",
+            "*.egg-info",
             ".venv",
             "venv",
-            "*.egg-info",
-            "dist",
-            "build",
             ".tox",
             ".pytest_cache",
             ".uv_cache",
             ".ruff_cache",
             ".hypothesis",
+            # JavaScript/Node
+            "node_modules",
+            # Build outputs
+            "dist",
+            "build",
         ]
         self._language_registry = language_registry or _default_registry
         self._pathspec: pathspec.PathSpec | None = None

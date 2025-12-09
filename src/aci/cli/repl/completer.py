@@ -135,6 +135,11 @@ class CommandCompleter(Completer):
 
             for entry in sorted(base_dir.iterdir()):
                 name = entry.name
+                
+                # Skip hidden paths (starting with . or $, or Windows hidden attribute)
+                if self._is_hidden_path(entry):
+                    continue
+                
                 if prefix and not name.lower().startswith(prefix.lower()):
                     continue
 
@@ -150,3 +155,36 @@ class CommandCompleter(Completer):
         except (OSError, PermissionError):
             # Silently ignore permission errors during completion
             return
+
+    def _is_hidden_path(self, path: Path) -> bool:
+        """
+        Check if a path is hidden and should be excluded from completion.
+
+        Detects:
+        - Paths starting with '.' (Unix hidden files)
+        - Paths starting with '$' (Windows system folders like $RECYCLE.BIN)
+        - Windows hidden file attribute
+
+        Args:
+            path: Path to check.
+
+        Returns:
+            True if the path is hidden.
+        """
+        name = path.name
+        
+        # Skip paths starting with . or $ (common hidden/system patterns)
+        if name.startswith(".") or name.startswith("$"):
+            return True
+        
+        # On Windows, also check the hidden file attribute
+        if sys.platform == "win32":
+            try:
+                import stat
+                attrs = path.stat().st_file_attributes  # type: ignore[attr-defined]
+                if attrs & stat.FILE_ATTRIBUTE_HIDDEN:
+                    return True
+            except (OSError, AttributeError):
+                pass
+        
+        return False

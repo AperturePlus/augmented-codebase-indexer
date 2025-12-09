@@ -256,6 +256,7 @@ class REPLController:
         elif command_name == "use":
             # Reset event loop when codebase changes
             if result.data and result.data.get("codebase_changed"):
+                self._reset_async_clients()
                 self._event_loop_manager.reset()
             if result.message:
                 self.console.print(f"[green]{result.message}[/green]")
@@ -271,6 +272,32 @@ class REPLController:
         self._indexing_ops.verbose = self._verbose
         mode = "verbose" if self._verbose else "compact"
         self.console.print(f"[cyan]Output mode:[/cyan] {mode}")
+
+    def _reset_async_clients(self) -> None:
+        """
+        Reset async HTTP clients before event loop reset.
+        
+        This ensures that httpx.AsyncClient instances are properly closed
+        before the event loop is reset, preventing "Event loop is closed" errors.
+        """
+        # Close embedding client's internal HTTP client
+        if hasattr(self.services.embedding_client, 'close'):
+            try:
+                self._event_loop_manager.run_async(
+                    self.services.embedding_client.close()
+                )
+            except Exception:
+                # Best effort - client may already be closed
+                pass
+        
+        # Close reranker's internal HTTP client if it has one
+        if self.services.reranker and hasattr(self.services.reranker, 'close'):
+            try:
+                self._event_loop_manager.run_async(
+                    self.services.reranker.close()
+                )
+            except Exception:
+                pass
 
     def _execute_async_command(self, command_name: str, result) -> None:
         """

@@ -21,6 +21,7 @@ from typing import Callable, List, Optional, Tuple
 from aci.core.ast_parser import ASTParserInterface, TreeSitterParser
 from aci.core.chunker import ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
+from aci.core.path_utils import get_collection_name_for_path
 from aci.infrastructure.embedding_client import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
@@ -220,9 +221,16 @@ class IndexingService:
         start_time = time.time()
         result = IndexingResult()
         
-        # Register repository
+        # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
-        self._metadata_store.register_repository(abs_root)
+        collection_name = get_collection_name_for_path(abs_root)
+        
+        # Switch vector store to use repository-specific collection
+        if hasattr(self._vector_store, "set_collection"):
+            self._vector_store.set_collection(collection_name)
+        
+        # Register repository with collection name
+        self._metadata_store.register_repository(abs_root, collection_name)
 
         # Scan files
         self._report_progress(0, 0, "Scanning files...")
@@ -530,9 +538,16 @@ class IndexingService:
         start_time = time.time()
         result = IndexingResult()
         
-        # Register/update repository timestamp
+        # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
-        self._metadata_store.register_repository(abs_root)
+        collection_name = get_collection_name_for_path(abs_root)
+        
+        # Switch vector store to use repository-specific collection
+        if hasattr(self._vector_store, "set_collection"):
+            self._vector_store.set_collection(collection_name)
+        
+        # Register/update repository timestamp with collection name
+        self._metadata_store.register_repository(abs_root, collection_name)
 
         # Get current file hashes from metadata store
         self._report_progress(0, 0, "Loading existing index metadata...")

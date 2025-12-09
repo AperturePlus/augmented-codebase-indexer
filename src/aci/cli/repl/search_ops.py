@@ -77,6 +77,19 @@ class SearchOperations:
         actual_limit = int(limit) if limit else self.services.config.search.default_limit
 
         try:
+            # Switch vector store to the correct collection for this codebase
+            # For backward compatibility, generate collection name if not stored
+            from aci.core.path_utils import get_collection_name_for_path
+
+            codebase_abs = str(codebase_path.resolve())
+            collection_name = self.services.metadata_store.get_collection_name(codebase_abs)
+            if not collection_name:
+                # Legacy index without collection_name - generate and update
+                collection_name = get_collection_name_for_path(codebase_abs)
+                self.services.metadata_store.register_repository(codebase_abs, collection_name)
+            if hasattr(self.services.vector_store, "set_collection"):
+                self.services.vector_store.set_collection(collection_name)
+
             grep_searcher = GrepSearcher(base_path=str(codebase_path))
 
             search_service = SearchService(

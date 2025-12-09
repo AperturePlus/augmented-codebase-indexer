@@ -2,9 +2,12 @@
 Path validation utilities for ACI.
 
 Provides centralized path validation, system directory detection,
-and directory creation utilities used across CLI, REPL, and HTTP layers.
+directory creation utilities, and collection name generation
+used across CLI, REPL, and HTTP layers.
 """
 
+import hashlib
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,3 +175,61 @@ def ensure_directory_exists(path: Path) -> bool:
         return True
     except (OSError, PermissionError):
         return False
+
+
+def generate_collection_name(root_path: Path | str, prefix: str = "aci") -> str:
+    """
+    Generate a unique Qdrant collection name for a repository.
+    
+    Creates a deterministic collection name based on the absolute path,
+    ensuring each repository has its own isolated collection.
+    
+    The format is: {prefix}_{sanitized_name}_{hash}
+    - prefix: configurable prefix (default "aci")
+    - sanitized_name: last directory component, sanitized for Qdrant
+    - hash: first 8 chars of SHA-256 hash of the full path
+    
+    Args:
+        root_path: Root path of the repository.
+        prefix: Prefix for the collection name.
+        
+    Returns:
+        A valid Qdrant collection name (alphanumeric, underscores, max 64 chars).
+        
+    Example:
+        >>> generate_collection_name("/home/user/my-project")
+        'aci_my_project_a1b2c3d4'
+    """
+    path = Path(root_path).resolve()
+    path_str = str(path)
+    
+    # Generate hash of full path for uniqueness
+    path_hash = hashlib.sha256(path_str.encode("utf-8")).hexdigest()[:8]
+    
+    # Get the last directory component as a readable name
+    dir_name = path.name or "root"
+    
+    # Sanitize: replace non-alphanumeric with underscore, lowercase
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", dir_name).lower()
+    # Remove consecutive underscores and trim
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    # Limit length to leave room for prefix and hash
+    max_name_len = 64 - len(prefix) - 1 - 8 - 1  # prefix_name_hash
+    sanitized = sanitized[:max_name_len]
+    
+    return f"{prefix}_{sanitized}_{path_hash}"
+
+
+def get_collection_name_for_path(root_path: Path | str) -> str:
+    """
+    Get the collection name for a repository path.
+    
+    Convenience wrapper around generate_collection_name with default prefix.
+    
+    Args:
+        root_path: Root path of the repository.
+        
+    Returns:
+        Qdrant collection name for this repository.
+    """
+    return generate_collection_name(root_path)

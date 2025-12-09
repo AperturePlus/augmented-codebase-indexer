@@ -132,6 +132,24 @@ class QdrantVectorStore(VectorStoreInterface):
             )
         return self._client
 
+    def set_collection(self, collection_name: str) -> None:
+        """
+        Switch to a different collection.
+        
+        This allows using the same vector store instance for different
+        repositories, each with their own isolated collection.
+        
+        Args:
+            collection_name: Name of the collection to use.
+        """
+        if collection_name != self._collection_name:
+            self._collection_name = collection_name
+            self._initialized = False  # Force re-initialization for new collection
+
+    def get_collection_name(self) -> str:
+        """Get the current collection name."""
+        return self._collection_name
+
     async def initialize(self) -> None:
         """Initialize the collection if it doesn't exist."""
         if self._initialized:

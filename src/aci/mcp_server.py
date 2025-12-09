@@ -166,6 +166,10 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Natural language search query describing the code you're looking for",
                     },
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the indexed codebase to search (required for isolation between codebases)",
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "Maximum number of results to return (optional, defaults to config)",
@@ -186,7 +190,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Search mode: 'hybrid' (default) combines semantic and keyword search, 'vector' for semantic only, 'grep' for keyword only",
                     },
                 },
-                "required": ["query"],
+                "required": ["query", "path"],
             },
         ),
         Tool(
@@ -285,12 +289,35 @@ async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
 async def _handle_search_code(arguments: dict) -> list[TextContent]:
     """Handle search_code tool call."""
     query = arguments["query"]
+    search_path = Path(arguments["path"])
     limit = arguments.get("limit")
     file_filter = arguments.get("file_filter")
     use_rerank = arguments.get("use_rerank")
     mode = arguments.get("mode")
 
-    cfg, search_service, _, _, _ = _get_initialized_services()
+    cfg, search_service, _, metadata_store, vector_store = _get_initialized_services()
+
+    # Validate and resolve path
+    if not search_path.exists():
+        return [TextContent(type="text", text=f"Error: Path does not exist: {search_path}")]
+    if not search_path.is_dir():
+        return [TextContent(type="text", text=f"Error: Path is not a directory: {search_path}")]
+
+    # Check if path is indexed and get collection name
+    search_path_abs = str(search_path.resolve())
+    index_info = metadata_store.get_index_info(search_path_abs)
+    if index_info is None:
+        return [TextContent(type="text", text=f"Error: Path has not been indexed: {search_path}. Run index_codebase first.")]
+
+    # Switch to the correct collection for this codebase
+    # For backward compatibility, generate collection name if not stored
+    collection_name = index_info.get("collection_name")
+    if not collection_name:
+        from aci.core.path_utils import get_collection_name_for_path
+        collection_name = get_collection_name_for_path(search_path_abs)
+        metadata_store.register_repository(search_path_abs, collection_name)
+    if hasattr(vector_store, "set_collection"):
+        vector_store.set_collection(collection_name)
 
     # Use config defaults if not specified
     if limit is None:

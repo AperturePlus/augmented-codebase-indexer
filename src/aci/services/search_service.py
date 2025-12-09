@@ -70,6 +70,110 @@ def _deduplicate_results(
     return [gr for gr in grep_results if not _is_near_duplicate(gr, vector_results)]
 
 
+def _deduplicate_by_location(results: List[SearchResult]) -> List[SearchResult]:
+    """
+    Remove duplicate results based on file location.
+
+    When multiple results have the same (file_path, start_line, end_line),
+    keeps only the one with the highest score.
+
+    Args:
+        results: List of search results (may contain duplicates)
+
+    Returns:
+        Deduplicated list with highest-scoring result per location
+    """
+    seen: dict[tuple[str, int, int], SearchResult] = {}
+
+    for result in results:
+        key = (result.file_path, result.start_line, result.end_line)
+        if key not in seen or result.score > seen[key].score:
+            seen[key] = result
+
+    # Return in original score order
+    deduped = list(seen.values())
+    deduped.sort(key=lambda r: r.score, reverse=True)
+    return deduped
+
+
+def parse_query_modifiers(query: str) -> tuple[str, Optional[str], List[str]]:
+    """
+    Parse query string for modifiers like file filters and exclusions.
+
+    Supported syntax:
+    - `path:*.py` or `file:src/**` - include only matching paths
+    - `-path:tests` or `exclude:tests` - exclude matching paths
+    - Multiple exclusions allowed: `-path:tests -path:fixtures`
+
+    Args:
+        query: Raw query string with potential modifiers
+
+    Returns:
+        Tuple of (clean_query, file_filter, exclude_patterns)
+
+    Examples:
+        >>> parse_query_modifiers("parse go syntax -path:tests")
+        ("parse go syntax", None, ["tests"])
+        >>> parse_query_modifiers("search query path:src/*.py")
+        ("search query", "src/*.py", [])
+    """
+    import re
+
+    file_filter = None
+    exclude_patterns: List[str] = []
+    clean_parts = []
+
+    # Split by whitespace but preserve quoted strings
+    tokens = query.split()
+
+    for token in tokens:
+        # Check for file filter: path:pattern or file:pattern
+        if token.startswith("path:") or token.startswith("file:"):
+            file_filter = token.split(":", 1)[1]
+        # Check for exclusion: -path:pattern or exclude:pattern
+        elif token.startswith("-path:") or token.startswith("exclude:"):
+            pattern = token.split(":", 1)[1]
+            if pattern:
+                exclude_patterns.append(pattern)
+        else:
+            clean_parts.append(token)
+
+    clean_query = " ".join(clean_parts).strip()
+    return clean_query, file_filter, exclude_patterns
+
+
+def _apply_exclusions(
+    results: List[SearchResult], exclude_patterns: List[str]
+) -> List[SearchResult]:
+    """
+    Filter out results matching any exclusion pattern.
+
+    Args:
+        results: Search results to filter
+        exclude_patterns: Glob patterns to exclude (matched against file_path)
+
+    Returns:
+        Filtered results with exclusions removed
+    """
+    import fnmatch
+
+    if not exclude_patterns:
+        return results
+
+    filtered = []
+    for result in results:
+        excluded = False
+        for pattern in exclude_patterns:
+            # Match pattern anywhere in path (not just at start)
+            if pattern in result.file_path or fnmatch.fnmatch(result.file_path, f"*{pattern}*"):
+                excluded = True
+                break
+        if not excluded:
+            filtered.append(result)
+
+    return filtered
+
+
 class RerankerInterface(ABC):
     """Interface for re-ranking search results."""
 
@@ -147,8 +251,12 @@ class SearchService:
         """
         Perform semantic search.
 
+        Supports query modifiers:
+        - `path:*.py` or `file:src/**` - include only matching paths
+        - `-path:tests` or `exclude:tests` - exclude matching paths
+
         Args:
-            query: Natural language search query
+            query: Natural language search query (may include modifiers)
             limit: Maximum results to return (default: default_limit)
             file_filter: Optional glob pattern for file paths
             use_rerank: Whether to use re-ranker if available
@@ -159,6 +267,15 @@ class SearchService:
         """
         limit = limit or self._default_limit
 
+        # Parse query for modifiers (path filters, exclusions)
+        clean_query, query_file_filter, exclude_patterns = parse_query_modifiers(query)
+
+        # Query file_filter overrides parameter if specified
+        effective_filter = query_file_filter or file_filter
+
+        # Use clean query for search
+        search_query = clean_query if clean_query else query
+
         # Execute searches based on mode
         vector_results: List[SearchResult] = []
         grep_results: List[SearchResult] = []
@@ -166,12 +283,12 @@ class SearchService:
         if search_mode == SearchMode.HYBRID:
             # Run both searches in parallel
             vector_results, grep_results = await self._execute_hybrid_search(
-                query, file_filter
+                search_query, effective_filter
             )
         elif search_mode == SearchMode.VECTOR:
-            vector_results = await self._execute_vector_search(query, file_filter)
+            vector_results = await self._execute_vector_search(search_query, effective_filter)
         elif search_mode == SearchMode.GREP:
-            grep_results = await self._execute_grep_search(query, file_filter)
+            grep_results = await self._execute_grep_search(search_query, effective_filter)
 
         # Merge and deduplicate results
         if vector_results and grep_results:
@@ -182,9 +299,16 @@ class SearchService:
         else:
             candidates = grep_results
 
+        # Remove exact location duplicates (same file + line range)
+        candidates = _deduplicate_by_location(candidates)
+
+        # Apply exclusion patterns before reranking
+        if exclude_patterns:
+            candidates = _apply_exclusions(candidates, exclude_patterns)
+
         # Re-rank if enabled and reranker available
         if use_rerank and self._reranker and candidates:
-            reranked = self._reranker.rerank(query, candidates, limit)
+            reranked = self._reranker.rerank(search_query, candidates, limit)
             if inspect.iscoroutine(reranked):
                 results = await reranked
             else:

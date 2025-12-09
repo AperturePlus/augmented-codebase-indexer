@@ -261,6 +261,18 @@ def search(
             )
             use_rerank = False
 
+        # Switch vector store to the correct collection for this codebase
+        # For backward compatibility, generate collection name if not stored
+        search_base_abs = str(search_base.resolve())
+        collection_name = metadata_store.get_collection_name(search_base_abs)
+        if not collection_name:
+            # Legacy index without collection_name - generate and update
+            from aci.core.path_utils import get_collection_name_for_path
+            collection_name = get_collection_name_for_path(search_base_abs)
+            metadata_store.register_repository(search_base_abs, collection_name)
+        if hasattr(vector_store, "set_collection"):
+            vector_store.set_collection(collection_name)
+
         # Create GrepSearcher for hybrid search support
         grep_searcher = GrepSearcher(base_path=str(search_base))
 
@@ -277,7 +289,7 @@ def search(
                 search_service.search(
                     query=query,
                     limit=actual_limit,
-                    file_filter=file_filter,
+                    file_filter=file_filter,  # User-provided filter only
                     use_rerank=use_rerank and reranker is not None,
                 )
             )

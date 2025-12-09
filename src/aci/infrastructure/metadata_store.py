@@ -47,6 +47,7 @@ class IndexMetadataStore:
     CREATE TABLE IF NOT EXISTS index_info (
         index_id TEXT PRIMARY KEY,
         root_path TEXT NOT NULL,
+        collection_name TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -116,10 +117,32 @@ class IndexMetadataStore:
         try:
             conn.executescript(self._SCHEMA)
             conn.commit()
+            
+            # Run migrations for existing databases
+            self._migrate_schema(conn)
+            
             self._initialized = True
             logger.info(f"Initialized metadata store: {self._db_path}")
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to initialize schema: {e}") from e
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """
+        Run schema migrations for existing databases.
+        
+        Adds new columns that may be missing from older database versions.
+        """
+        try:
+            # Check if collection_name column exists in index_info
+            cursor = conn.execute("PRAGMA table_info(index_info)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            if "collection_name" not in columns:
+                logger.info("Migrating database: adding collection_name column to index_info")
+                conn.execute("ALTER TABLE index_info ADD COLUMN collection_name TEXT")
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.warning(f"Schema migration warning: {e}")
 
     def get_file_info(self, file_path: str) -> Optional[IndexedFileInfo]:
         """Get information about an indexed file."""
@@ -385,7 +408,9 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get stats: {e}") from e
 
-    def set_index_info(self, index_id: str, root_path: str) -> None:
+    def set_index_info(
+        self, index_id: str, root_path: str, collection_name: Optional[str] = None
+    ) -> None:
         """Set or update index metadata."""
         self.initialize()
         conn = self._get_connection()
@@ -393,33 +418,38 @@ class IndexMetadataStore:
         try:
             conn.execute(
                 """
-                INSERT INTO index_info (index_id, root_path, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO index_info (index_id, root_path, collection_name, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(index_id) DO UPDATE SET
                     root_path = excluded.root_path,
+                    collection_name = COALESCE(excluded.collection_name, collection_name),
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (index_id, root_path),
+                (index_id, root_path, collection_name),
             )
             conn.commit()
 
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to set index info: {e}") from e
 
-    def register_repository(self, root_path: str) -> None:
+    def register_repository(self, root_path: str, collection_name: Optional[str] = None) -> None:
         """
         Register or update a repository root path.
         
         Uses the root_path itself as the unique index_id.
+        
+        Args:
+            root_path: Absolute path to the repository root.
+            collection_name: Optional Qdrant collection name for this repository.
         """
-        self.set_index_info(index_id=root_path, root_path=root_path)
+        self.set_index_info(index_id=root_path, root_path=root_path, collection_name=collection_name)
 
     def get_repositories(self) -> List[Dict]:
         """
         Get all registered repositories.
         
         Returns:
-            List of dicts with keys: root_path, created_at, updated_at
+            List of dicts with keys: root_path, collection_name, created_at, updated_at
         """
         self.initialize()
         conn = self._get_connection()
@@ -427,7 +457,7 @@ class IndexMetadataStore:
         try:
             cursor = conn.execute(
                 """
-                SELECT root_path, created_at, updated_at
+                SELECT root_path, collection_name, created_at, updated_at
                 FROM index_info
                 ORDER BY updated_at DESC
                 """
@@ -435,6 +465,7 @@ class IndexMetadataStore:
             return [
                 {
                     "root_path": row["root_path"],
+                    "collection_name": row["collection_name"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
@@ -452,7 +483,7 @@ class IndexMetadataStore:
         try:
             cursor = conn.execute(
                 """
-                SELECT index_id, root_path, created_at, updated_at
+                SELECT index_id, root_path, collection_name, created_at, updated_at
                 FROM index_info
                 WHERE index_id = ?
                 """,
@@ -466,12 +497,28 @@ class IndexMetadataStore:
             return {
                 "index_id": row["index_id"],
                 "root_path": row["root_path"],
+                "collection_name": row["collection_name"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
 
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get index info: {e}") from e
+    
+    def get_collection_name(self, root_path: str) -> Optional[str]:
+        """
+        Get the collection name for a repository.
+        
+        Args:
+            root_path: Absolute path to the repository root.
+            
+        Returns:
+            Collection name if found, None otherwise.
+        """
+        info = self.get_index_info(root_path)
+        if info:
+            return info.get("collection_name")
+        return None
 
     def clear_all(self) -> None:
         """Clear all data from the store."""

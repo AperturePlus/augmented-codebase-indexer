@@ -171,12 +171,39 @@ def create_app() -> FastAPI:
     @app.get("/search")
     async def search(
         q: str,
+        path: str,
         limit: Optional[int] = None,
         file_filter: Optional[str] = None,
         use_rerank: Optional[bool] = None,
         mode: Optional[str] = None,
     ):
         try:
+            # Validate and resolve path
+            search_path = Path(path)
+            if not search_path.exists():
+                raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
+            if not search_path.is_dir():
+                raise HTTPException(status_code=400, detail=f"Path is not a directory: {path}")
+
+            # Check if path is indexed and get collection name
+            search_path_abs = str(search_path.resolve())
+            index_info = metadata_store.get_index_info(search_path_abs)
+            if index_info is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Path has not been indexed: {path}. Run /index first.",
+                )
+
+            # Switch to the correct collection for this codebase
+            # For backward compatibility, generate collection name if not stored
+            collection_name = index_info.get("collection_name")
+            if not collection_name:
+                from aci.core.path_utils import get_collection_name_for_path
+                collection_name = get_collection_name_for_path(search_path_abs)
+                metadata_store.register_repository(search_path_abs, collection_name)
+            if hasattr(vector_store, "set_collection"):
+                vector_store.set_collection(collection_name)
+
             apply_rerank = cfg.search.use_rerank if use_rerank is None else use_rerank
 
             # Parse search mode (default to hybrid)
@@ -198,6 +225,8 @@ def create_app() -> FastAPI:
                 search_mode=search_mode,
             )
             return {"results": [_to_response_item(r) for r in results]}
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.error(f"Error in /search: {exc}", exc_info=True)
             raise HTTPException(status_code=500, detail="Internal Server Error")
