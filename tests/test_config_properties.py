@@ -86,6 +86,8 @@ def search_config_strategy(draw):
         default_limit=draw(st.integers(min_value=1, max_value=100)),
         use_rerank=draw(st.booleans()),
         rerank_model=draw(safe_text),
+        rerank_api_key=draw(safe_text),
+        rerank_api_url=draw(safe_url),
     )
 
 
@@ -200,3 +202,54 @@ def test_config_to_json_string_round_trip(config: ACIConfig):
 
         # Verify equivalence
         assert config.to_dict() == loaded_config.to_dict()
+
+
+@given(config=aci_config_strategy())
+@settings(max_examples=50)
+def test_config_to_dict_safe_redacts_api_keys(config: ACIConfig):
+    """
+    **Feature: Security - Sensitive Information Protection**
+    
+    For any valid ACIConfig object with API keys, to_dict_safe() should
+    redact sensitive information like API keys while preserving all other
+    configuration values.
+    """
+    # Get the safe dictionary representation
+    safe_dict = config.to_dict_safe()
+    
+    # Verify that API keys are redacted if they exist
+    if config.embedding.api_key:
+        assert safe_dict["embedding"]["api_key"] == "[REDACTED]", \
+            "Embedding API key should be redacted in safe dict"
+    
+    if config.search.rerank_api_key:
+        assert safe_dict["search"]["rerank_api_key"] == "[REDACTED]", \
+            "Rerank API key should be redacted in safe dict"
+    
+    # Verify that non-sensitive fields are preserved
+    assert safe_dict["embedding"]["api_url"] == config.embedding.api_url
+    assert safe_dict["embedding"]["model"] == config.embedding.model
+    assert safe_dict["vector_store"]["host"] == config.vector_store.host
+    assert safe_dict["indexing"]["max_chunk_tokens"] == config.indexing.max_chunk_tokens
+
+
+def test_config_to_dict_safe_empty_keys():
+    """
+    **Feature: Security - Sensitive Information Protection**
+    
+    When API keys are empty strings, to_dict_safe() should preserve them
+    as empty strings rather than redacting.
+    """
+    config = ACIConfig(
+        embedding=EmbeddingConfig(
+            api_key="",
+            api_url="https://api.example.com",
+            model="test-model"
+        )
+    )
+    
+    safe_dict = config.to_dict_safe()
+    
+    # Empty API key should remain empty, not redacted
+    assert safe_dict["embedding"]["api_key"] == ""
+
