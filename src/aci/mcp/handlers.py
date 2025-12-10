@@ -61,7 +61,7 @@ async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
     
     cfg, _, indexing_service, _, _ = get_initialized_services()
     _debug(f"Services initialized, embedding_url={cfg.embedding.api_url}, model={cfg.embedding.model}")
-    _debug(f"API key present: {bool(cfg.embedding.api_key)}, key prefix: {cfg.embedding.api_key[:8] if cfg.embedding.api_key else 'NONE'}...")
+    _debug(f"API key present: {bool(cfg.embedding.api_key)}")
 
     # IMPORTANT: Force single-threaded mode for MCP
     # ProcessPoolExecutor conflicts with MCP's stdio event loop, causing hangs.
