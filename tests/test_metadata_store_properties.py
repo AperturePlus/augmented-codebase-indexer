@@ -253,3 +253,102 @@ def test_delete_file(file_info: IndexedFileInfo):
             assert deleted_again is False
         finally:
             store.close()
+
+
+
+@given(
+    repos=st.lists(
+        st.tuples(
+            file_path_strategy,  # root_path
+            st.text(
+                alphabet=st.characters(whitelist_categories=("L", "N")),
+                min_size=1,
+                max_size=20,
+            ),  # collection_name
+        ),
+        min_size=1,
+        max_size=5,
+        unique_by=lambda x: x[0],  # Unique root paths
+    ),
+    files_per_repo=st.integers(min_value=1, max_value=5),
+)
+@settings(max_examples=100, deadline=None)
+def test_reset_clears_all_metadata(
+    repos: list[tuple[str, str]],
+    files_per_repo: int,
+):
+    """
+    **Feature: vector-store-isolation, Property 4: Reset clears all metadata**
+    **Validates: Requirements 2.2, 2.4**
+
+    *For any* metadata store containing repository registrations and indexed file
+    records, after reset completes, the metadata store SHALL contain zero
+    repositories and zero indexed files.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        store = IndexMetadataStore(db_path)
+
+        try:
+            # Register repositories
+            for root_path, collection_name in repos:
+                store.register_repository(root_path, collection_name)
+
+            # Add indexed files for each repository
+            for root_path, _ in repos:
+                for i in range(files_per_repo):
+                    file_info = IndexedFileInfo(
+                        file_path=f"{root_path}/file_{i}.py",
+                        content_hash="a" * 64,
+                        language="python",
+                        line_count=100,
+                        chunk_count=5,
+                        indexed_at=datetime.now(),
+                        modified_time=1000.0 + i,
+                    )
+                    store.upsert_file(file_info)
+
+            # Verify data exists before reset
+            repos_before = store.get_repositories()
+            stats_before = store.get_stats()
+            assert len(repos_before) == len(repos), (
+                f"Expected {len(repos)} repositories before reset, got {len(repos_before)}"
+            )
+            assert stats_before["total_files"] == len(repos) * files_per_repo, (
+                f"Expected {len(repos) * files_per_repo} files before reset, "
+                f"got {stats_before['total_files']}"
+            )
+
+            # Execute reset (clear_all)
+            store.clear_all()
+
+            # Verify all data is cleared after reset
+            repos_after = store.get_repositories()
+            stats_after = store.get_stats()
+            all_files_after = store.get_all_files()
+
+            # Property: Zero repositories after reset
+            assert len(repos_after) == 0, (
+                f"Expected 0 repositories after reset, got {len(repos_after)}"
+            )
+
+            # Property: Zero indexed files after reset
+            assert stats_after["total_files"] == 0, (
+                f"Expected 0 files after reset, got {stats_after['total_files']}"
+            )
+            assert len(all_files_after) == 0, (
+                f"Expected 0 files in get_all_files after reset, got {len(all_files_after)}"
+            )
+
+            # Property: Zero chunks after reset
+            assert stats_after["total_chunks"] == 0, (
+                f"Expected 0 chunks after reset, got {stats_after['total_chunks']}"
+            )
+
+            # Property: Zero lines after reset
+            assert stats_after["total_lines"] == 0, (
+                f"Expected 0 lines after reset, got {stats_after['total_lines']}"
+            )
+
+        finally:
+            store.close()

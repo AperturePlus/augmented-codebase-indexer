@@ -302,6 +302,7 @@ class SearchService:
         file_filter: Optional[str] = None,
         use_rerank: bool = True,
         search_mode: SearchMode = SearchMode.HYBRID,
+        collection_name: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         Perform semantic search.
@@ -316,6 +317,9 @@ class SearchService:
             file_filter: Optional glob pattern for file paths
             use_rerank: Whether to use re-ranker if available
             search_mode: Search mode (HYBRID, VECTOR, or GREP)
+            collection_name: Optional collection to search. If provided, searches
+                that collection without modifying instance state. If None, uses
+                the vector store's default collection.
 
         Returns:
             List of SearchResult sorted by relevance
@@ -341,14 +345,14 @@ class SearchService:
         if search_mode == SearchMode.HYBRID:
             # Run both searches in parallel
             vector_results, grep_results = await self._execute_hybrid_search(
-                search_query, effective_filter, use_rerank=will_rerank
+                search_query, effective_filter, use_rerank=will_rerank, collection_name=collection_name
             )
         elif search_mode == SearchMode.VECTOR:
             vector_results = await self._execute_vector_search(
-                search_query, effective_filter, use_rerank=will_rerank
+                search_query, effective_filter, use_rerank=will_rerank, collection_name=collection_name
             )
         elif search_mode == SearchMode.GREP:
-            grep_results = await self._execute_grep_search(search_query, effective_filter)
+            grep_results = await self._execute_grep_search(search_query, effective_filter, collection_name=collection_name)
 
         # Normalize scores for hybrid search without reranking
         # This ensures grep results (score=1.0) don't dominate vector results
@@ -386,7 +390,8 @@ class SearchService:
         return results
 
     async def _execute_vector_search(
-        self, query: str, file_filter: Optional[str], use_rerank: bool = False
+        self, query: str, file_filter: Optional[str], use_rerank: bool = False,
+        collection_name: Optional[str] = None
     ) -> List[SearchResult]:
         """Execute vector search and return results.
         
@@ -394,6 +399,7 @@ class SearchService:
             query: Search query text
             file_filter: Optional glob pattern for file paths
             use_rerank: Whether reranking will be applied (affects candidate count)
+            collection_name: Optional collection to search
             
         Returns:
             List of SearchResult from vector search
@@ -415,20 +421,34 @@ class SearchService:
                 query_vector=query_vector,
                 limit=fetch_limit,
                 file_filter=file_filter,
+                collection_name=collection_name,
             )
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             return []
 
     async def _execute_grep_search(
-        self, query: str, file_filter: Optional[str]
+        self, query: str, file_filter: Optional[str],
+        collection_name: Optional[str] = None
     ) -> List[SearchResult]:
-        """Execute grep search and return results."""
+        """Execute grep search and return results.
+        
+        Args:
+            query: Search query text
+            file_filter: Optional glob pattern for file paths
+            collection_name: Optional collection (currently unused for grep, 
+                but accepted for API consistency)
+        
+        Returns:
+            List of SearchResult from grep search
+        """
         if not self._grep_searcher:
             return []
 
         try:
             # Get all indexed file paths from vector store
+            # Note: get_all_file_paths uses the instance's default collection
+            # For full isolation, this would need collection_name support too
             file_paths = await self._vector_store.get_all_file_paths()
 
             return await self._grep_searcher.search(
@@ -442,7 +462,8 @@ class SearchService:
             return []
 
     async def _execute_hybrid_search(
-        self, query: str, file_filter: Optional[str], use_rerank: bool = False
+        self, query: str, file_filter: Optional[str], use_rerank: bool = False,
+        collection_name: Optional[str] = None
     ) -> tuple[List[SearchResult], List[SearchResult]]:
         """Execute both vector and grep search in parallel.
         
@@ -450,13 +471,14 @@ class SearchService:
             query: Search query text
             file_filter: Optional glob pattern for file paths
             use_rerank: Whether reranking will be applied
+            collection_name: Optional collection to search
             
         Returns:
             Tuple of (vector_results, grep_results)
         """
         try:
-            vector_task = self._execute_vector_search(query, file_filter, use_rerank)
-            grep_task = self._execute_grep_search(query, file_filter)
+            vector_task = self._execute_vector_search(query, file_filter, use_rerank, collection_name)
+            grep_task = self._execute_grep_search(query, file_filter, collection_name)
 
             vector_results, grep_results = await asyncio.gather(
                 vector_task, grep_task, return_exceptions=True

@@ -261,7 +261,7 @@ def search(
             )
             use_rerank = False
 
-        # Switch vector store to the correct collection for this codebase
+        # Get collection name for this codebase (pass explicitly to search, no mutation)
         # For backward compatibility, generate collection name if not stored
         search_base_abs = str(search_base.resolve())
         collection_name = metadata_store.get_collection_name(search_base_abs)
@@ -270,8 +270,6 @@ def search(
             from aci.core.path_utils import get_collection_name_for_path
             collection_name = get_collection_name_for_path(search_base_abs)
             metadata_store.register_repository(search_base_abs, collection_name)
-        if hasattr(vector_store, "set_collection"):
-            vector_store.set_collection(collection_name)
 
         # Create GrepSearcher for hybrid search support
         grep_searcher = GrepSearcher(base_path=str(search_base))
@@ -291,6 +289,7 @@ def search(
                     limit=actual_limit,
                     file_filter=file_filter,  # User-provided filter only
                     use_rerank=use_rerank and reranker is not None,
+                    collection_name=collection_name,  # Pass explicitly, no state mutation
                 )
             )
 
@@ -411,11 +410,11 @@ def update(
 
 @app.command()
 def reset():
-    """Clear vector store collection and metadata."""
+    """Clear all vector store collections and metadata."""
     if not typer.confirm("Are you sure you want to reset the index? This will delete all data."):
         raise typer.Abort()
 
-    console.print("[bold yellow]Resetting index (vector store collection + metadata)...[/bold yellow]")
+    console.print("[bold yellow]Resetting index (all vector store collections + metadata)...[/bold yellow]")
     try:
         (
             cfg,
@@ -427,12 +426,41 @@ def reset():
             reranker,
         ) = get_services()
 
-        # Reset vector store if supported
-        if hasattr(vector_store, "reset"):
-            asyncio.run(vector_store.reset())
-            console.print("  [green]✓[/green] Vector store collection reset.")
+        # Get all registered repositories and their collections
+        repos = metadata_store.get_repositories()
+        deleted_collections = []
+        failed_collections = []
+        
+        # Delete each repository's collection
+        for repo in repos:
+            collection_name = repo.get("collection_name")
+            if collection_name:
+                try:
+                    deleted = asyncio.run(vector_store.delete_collection(collection_name))
+                    if deleted:
+                        deleted_collections.append(collection_name)
+                except Exception as e:
+                    failed_collections.append((collection_name, str(e)))
+        
+        # Also delete the default collection if it exists and wasn't already deleted
+        default_collection = cfg.vector_store.collection_name
+        if default_collection not in deleted_collections:
+            try:
+                deleted = asyncio.run(vector_store.delete_collection(default_collection))
+                if deleted:
+                    deleted_collections.append(default_collection)
+            except Exception as e:
+                failed_collections.append((default_collection, str(e)))
+        
+        if deleted_collections:
+            console.print(f"  [green]✓[/green] Deleted {len(deleted_collections)} collection(s).")
         else:
-            console.print("  [yellow]![/yellow] Vector store does not support reset; skipping.")
+            console.print("  [yellow]![/yellow] No collections found to delete.")
+        
+        if failed_collections:
+            console.print(f"  [yellow]![/yellow] Failed to delete {len(failed_collections)} collection(s):")
+            for name, error in failed_collections:
+                console.print(f"      - {name}: {error}")
 
         # Clear metadata
         metadata_store.clear_all()

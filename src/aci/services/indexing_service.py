@@ -13,7 +13,6 @@ import asyncio
 import logging
 import time
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -25,150 +24,10 @@ from aci.core.path_utils import get_collection_name_for_path
 from aci.infrastructure.embedding_client import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
+from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
+from aci.services.indexing_worker import init_worker, process_file_worker
 
 logger = logging.getLogger(__name__)
-
-
-class IndexingError(Exception):
-    """Raised when indexing fails due to embedding count mismatch or other errors."""
-
-    def __init__(
-        self,
-        message: str,
-        batch_index: Optional[int] = None,
-        expected: Optional[int] = None,
-        actual: Optional[int] = None,
-    ):
-        self.batch_index = batch_index
-        self.expected = expected
-        self.actual = actual
-        super().__init__(message)
-
-
-
-# Global variables for worker processes
-_worker_parser: Optional[ASTParserInterface] = None
-_worker_chunker: Optional[ChunkerInterface] = None
-
-
-def _init_worker():
-    """
-    Initialize worker process with parser and chunker.
-    
-    This runs once per worker process to avoid repeatedly creating
-    TreeSitterParser instances (which load shared libraries) and
-    Chunker instances.
-    """
-    global _worker_parser, _worker_chunker
-    _worker_parser = TreeSitterParser()
-    _worker_chunker = create_chunker()
-
-
-def _process_file_worker(
-    file_path: str,
-    content: str,
-    language: str,
-    content_hash: str,
-    modified_time: float,
-    size_bytes: int,
-) -> Tuple[str, List[dict], str, int, str, Optional[str]]:
-    """
-    Worker function for parallel file processing.
-    
-    This function runs in a separate process to handle CPU-intensive
-    AST parsing and chunking operations. It uses global parser/chunker
-    instances initialized by _init_worker.
-    
-    Args:
-        file_path: Path to the file
-        content: File content
-        language: Programming language
-        content_hash: SHA-256 hash of content
-        modified_time: File modification timestamp
-        size_bytes: File size in bytes
-        
-    Returns:
-        Tuple of (file_path, chunks_data, language, line_count, content_hash, error)
-        where chunks_data is a list of serializable chunk dictionaries
-    """
-    try:
-        # Use global instances initialized per worker
-        global _worker_parser, _worker_chunker
-        
-        # Fallback if not initialized (e.g., if run directly not via executor)
-        if _worker_parser is None:
-            _worker_parser = TreeSitterParser()
-        if _worker_chunker is None:
-            _worker_chunker = create_chunker()
-            
-        parser = _worker_parser
-        chunker = _worker_chunker
-        
-        # Create a ScannedFile object
-        scanned_file = ScannedFile(
-            path=Path(file_path),
-            content=content,
-            language=language,
-            size_bytes=size_bytes,
-            modified_time=modified_time,
-            content_hash=content_hash,
-        )
-        
-        # Parse AST if language is supported
-        ast_nodes = []
-        if parser.supports_language(language):
-            ast_nodes = parser.parse(content, language)
-        
-        # Chunk the file
-        chunks = chunker.chunk(scanned_file, ast_nodes)
-        
-        # Convert chunks to serializable dictionaries
-        chunks_data = [
-            {
-                "chunk_id": chunk.chunk_id,
-                "file_path": chunk.file_path,
-                "start_line": chunk.start_line,
-                "end_line": chunk.end_line,
-                "content": chunk.content,
-                "language": chunk.language,
-                "chunk_type": chunk.chunk_type,
-                "metadata": chunk.metadata,
-            }
-            for chunk in chunks
-        ]
-        
-        line_count = content.count('\n') + 1
-        
-        return (file_path, chunks_data, language, line_count, content_hash, None)
-        
-    except Exception as e:
-        logger.error(f"Error processing {file_path}: {e}")
-        return (file_path, [], language, 0, content_hash, str(e))
-
-
-@dataclass
-class IndexingResult:
-    """Result of an indexing operation."""
-
-    total_files: int = 0
-    total_chunks: int = 0
-    new_files: int = 0
-    modified_files: int = 0
-    deleted_files: int = 0
-    failed_files: List[str] = field(default_factory=list)
-    duration_seconds: float = 0.0
-
-
-@dataclass
-class ProcessedFile:
-    """Result of processing a single file."""
-
-    file_path: str
-    chunks: List[CodeChunk]
-    language: str
-    line_count: int
-    content_hash: str
-    error: Optional[str] = None
 
 
 class IndexingService:
@@ -262,10 +121,8 @@ class IndexingService:
         all_chunks: List[CodeChunk] = []
 
         if self._max_workers > 1 and total_files > 1:
-            # Use parallel processing for multiple files
             all_chunks, result = await self._process_files_parallel(files, result, total_files)
         else:
-            # Sequential processing for single file or single worker
             all_chunks, result = await self._process_files_sequential(files, result, total_files)
 
         result.total_chunks = len(all_chunks)
@@ -289,31 +146,20 @@ class IndexingService:
         Uses ProcessPoolExecutor for true parallelism of CPU-bound tasks
         (parsing and chunking). Workers are initialized with shared
         parser/chunker instances to avoid overhead.
-        
-        Args:
-            files: List of scanned files to process
-            result: IndexingResult to update
-            total_files: Total number of files for progress reporting
-            
-        Returns:
-            Tuple of (all_chunks, updated_result)
         """
         all_chunks: List[CodeChunk] = []
         loop = asyncio.get_running_loop()
         
         try:
-            # Use ProcessPoolExecutor for true CPU parallelism
-            # Pass initializer to set up global parser/chunker per worker
             with ProcessPoolExecutor(
                 max_workers=self._max_workers,
-                initializer=_init_worker
+                initializer=init_worker
             ) as executor:
-                # Submit all tasks
                 futures = []
                 for scanned_file in files:
                     future = loop.run_in_executor(
                         executor,
-                        _process_file_worker,
+                        process_file_worker,
                         str(scanned_file.path),
                         scanned_file.content,
                         scanned_file.language,
@@ -323,7 +169,6 @@ class IndexingService:
                     )
                     futures.append((future, scanned_file))
                 
-                # Collect results as they complete
                 processed_count = 0
                 for future, scanned_file in futures:
                     try:
@@ -332,7 +177,6 @@ class IndexingService:
                         if error:
                             result.failed_files.append(file_path)
                         else:
-                            # Convert chunk dictionaries back to CodeChunk objects
                             chunks = [
                                 CodeChunk(
                                     chunk_id=cd["chunk_id"],
@@ -349,8 +193,6 @@ class IndexingService:
                             all_chunks.extend(chunks)
                             result.total_files += 1
                             
-                            # Store file info for later metadata update (after embedding succeeds)
-                            # We attach metadata to chunks so we can update after embedding
                             for chunk in chunks:
                                 chunk.metadata["_pending_file_info"] = {
                                     "file_path": file_path,
@@ -360,10 +202,6 @@ class IndexingService:
                                     "chunk_count": len(chunks),
                                     "modified_time": scanned_file.modified_time,
                                 }
-                            
-                            # NOTE: Metadata is now written in _embed_and_store_chunks after successful embedding
-                            # Old code that wrote metadata here has been removed to prevent
-                            # metadata being written before embedding succeeds
                             
                     except Exception as e:
                         logger.error(f"Failed to process {scanned_file.path}: {e}")
@@ -390,17 +228,7 @@ class IndexingService:
         result: IndexingResult,
         total_files: int,
     ) -> Tuple[List[CodeChunk], IndexingResult]:
-        """
-        Process files sequentially (fallback for single worker).
-
-        Args:
-            files: List of scanned files to process
-            result: IndexingResult to update
-            total_files: Total number of files for progress reporting
-
-        Returns:
-            Tuple of (all_chunks, updated_result)
-        """
+        """Process files sequentially (fallback for single worker)."""
         all_chunks: List[CodeChunk] = []
 
         for i, scanned_file in enumerate(files):
@@ -412,7 +240,6 @@ class IndexingService:
                     all_chunks.extend(processed.chunks)
                     result.total_files += 1
 
-                    # Store file info for later metadata update (after embedding succeeds)
                     for chunk in processed.chunks:
                         chunk.metadata["_pending_file_info"] = {
                             "file_path": processed.file_path,
@@ -422,7 +249,6 @@ class IndexingService:
                             "chunk_count": len(processed.chunks),
                             "modified_time": scanned_file.modified_time,
                         }
-                    # NOTE: Metadata is now written in _embed_and_store_chunks after successful embedding
             except Exception as e:
                 logger.error(f"Failed to process {scanned_file.path}: {e}")
                 result.failed_files.append(str(scanned_file.path))
@@ -433,25 +259,13 @@ class IndexingService:
         return all_chunks, result
 
     def _process_file(self, scanned_file: ScannedFile) -> ProcessedFile:
-        """
-        Process a single file: parse and chunk.
-
-        Args:
-            scanned_file: File to process
-
-        Returns:
-            ProcessedFile with chunks or error
-        """
+        """Process a single file: parse and chunk."""
         try:
-            # Parse AST
             ast_nodes = []
             if self._ast_parser.supports_language(scanned_file.language):
                 ast_nodes = self._ast_parser.parse(scanned_file.content, scanned_file.language)
 
-            # Chunk the file
             chunks = self._chunker.chunk(scanned_file, ast_nodes)
-
-            # Count lines
             line_count = scanned_file.content.count("\n") + 1
 
             return ProcessedFile(
@@ -472,35 +286,27 @@ class IndexingService:
                 error=str(e),
             )
 
+
     async def _embed_and_store_chunks(self, chunks: List[CodeChunk]) -> None:
         """
         Generate embeddings and store chunks in batches.
         
         Also updates metadata store after successful embedding to ensure
         metadata is only written when embedding/storage succeeds.
-
-        Args:
-            chunks: List of chunks to embed and store
             
         Raises:
             IndexingError: If embedding API returns fewer vectors than expected
         """
         total_chunks = len(chunks)
-        # Track which files have been successfully embedded
         successfully_embedded_files: dict[str, dict] = {}
 
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
             batch_index = i // self._batch_size
 
-            # Extract texts for embedding
             texts = [chunk.content for chunk in batch]
-
-            # Generate embeddings
             embeddings = await self._embedding_client.embed_batch(texts)
 
-            # Validate embedding count matches input count
-            # This prevents silent data loss when API returns partial results
             if len(embeddings) != len(texts):
                 raise IndexingError(
                     f"Embedding count mismatch in batch {batch_index}: "
@@ -511,9 +317,7 @@ class IndexingService:
                     actual=len(embeddings),
                 )
 
-            # Store in vector store
             for chunk, embedding in zip(batch, embeddings):
-                # Extract pending file info before creating payload
                 pending_info = chunk.metadata.pop("_pending_file_info", None)
                 
                 payload = {
@@ -527,7 +331,6 @@ class IndexingService:
                 }
                 await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
                 
-                # Track successfully embedded file info for metadata update
                 if pending_info and pending_info["file_path"] not in successfully_embedded_files:
                     successfully_embedded_files[pending_info["file_path"]] = pending_info
 
@@ -537,7 +340,6 @@ class IndexingService:
                 f"Embedded {min(i + self._batch_size, total_chunks)} chunks",
             )
         
-        # Update metadata store only after all embeddings succeed
         for file_path, info in successfully_embedded_files.items():
             self._metadata_store.upsert_file(
                 IndexedFileInfo(
@@ -556,48 +358,32 @@ class IndexingService:
         Perform incremental update of the index.
 
         Detects new, modified, and deleted files using content hash comparison
-        and updates the index accordingly:
-        - New files: Index and add to vector store
-        - Modified files: Remove old chunks, re-index with new content
-        - Deleted files: Remove from vector store and metadata
-
-        Args:
-            root_path: Root directory to update
-
-        Returns:
-            IndexingResult with statistics including counts of new/modified/deleted files
+        and updates the index accordingly.
         """
         start_time = time.time()
         result = IndexingResult()
         
-        # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
         
-        # Switch vector store to use repository-specific collection
         if hasattr(self._vector_store, "set_collection"):
             self._vector_store.set_collection(collection_name)
         
-        # Register/update repository timestamp with collection name
         self._metadata_store.register_repository(abs_root, collection_name)
 
-        # Get current file hashes from metadata store
         self._report_progress(0, 0, "Loading existing index metadata...")
         existing_hashes = self._metadata_store.get_all_file_hashes()
 
-        # Scan current files on disk
         self._report_progress(0, 0, "Scanning files...")
         current_files = {str(f.path): f for f in self._file_scanner.scan(root_path)}
 
         current_paths = set(current_files.keys())
         existing_paths = set(existing_hashes.keys())
 
-        # Detect changes using hash comparison (Requirements 5.1, 5.2, 5.3, 5.4)
         new_paths = current_paths - existing_paths
         deleted_paths = existing_paths - current_paths
         common_paths = current_paths & existing_paths
 
-        # Modified files are those with different content hashes
         modified_paths = {
             p for p in common_paths if current_files[p].content_hash != existing_hashes[p]
         }
@@ -617,7 +403,6 @@ class IndexingService:
             f"{result.modified_files} modified, {result.deleted_files} deleted"
         )
 
-        # Handle deleted files - remove from vector store and metadata
         if deleted_paths:
             self._report_progress(0, len(deleted_paths), "Removing deleted files...")
             for i, path in enumerate(deleted_paths):
@@ -628,7 +413,6 @@ class IndexingService:
                         i + 1, len(deleted_paths), f"Removed {i + 1} deleted files"
                     )
 
-        # Handle modified files - delete old chunks first
         if modified_paths:
             self._report_progress(
                 0, len(modified_paths), "Removing old chunks for modified files..."
@@ -640,7 +424,6 @@ class IndexingService:
                         i + 1, len(modified_paths), f"Removed old chunks for {i + 1} modified files"
                     )
 
-        # Process new and modified files
         files_to_process = [current_files[p] for p in (new_paths | modified_paths)]
         all_chunks: List[CodeChunk] = []
 
@@ -648,7 +431,6 @@ class IndexingService:
             total_to_process = len(files_to_process)
             self._report_progress(0, total_to_process, "Processing new and modified files...")
 
-            # Use parallel processing if multiple files and workers
             if self._max_workers > 1 and total_to_process > 1:
                 all_chunks, result = await self._process_files_parallel(
                     files_to_process, result, total_to_process
@@ -660,7 +442,6 @@ class IndexingService:
 
         result.total_chunks = len(all_chunks)
 
-        # Embed and store new chunks
         if all_chunks:
             await self._embed_and_store_chunks(all_chunks)
 

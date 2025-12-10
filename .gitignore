@@ -13,3 +13,7 @@ uv.lock
 .venv-wsl
 .uvenv/
 .uv_cache/
+*.ipynb*
+*.pyc
+*.pyo
+*.pyd

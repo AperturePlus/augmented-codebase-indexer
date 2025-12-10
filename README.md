@@ -147,6 +147,20 @@ For detailed MCP setup and usage, see [MCP_USAGE.md](./MCP_USAGE.md).
 - `list_indexed_repos` - List all indexed repositories
 ```
 
+## Security
+
+ACI includes built-in security protections:
+
+- **System directory protection**: Indexing system directories (`/etc`, `/var`, `C:\Windows`, etc.) is blocked across all interfaces (CLI, HTTP, MCP)
+- **Sensitive file denylist**: The following files are automatically excluded from indexing regardless of configuration:
+  - SSH keys and directories (`.ssh`, `id_rsa`, `id_ed25519`, etc.)
+  - GPG directories (`.gnupg`)
+  - Certificates and private keys (`*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.crt`)
+  - Environment files (`.env`, `.env.*`)
+  - Credential files (`.netrc`, `.npmrc`, `.pypirc`)
+
+These protections cannot be overridden by user configuration.
+
 ## Configuration
 
 Use a `.env` file (required). The app auto-loads `.env`; YAML configs are disabled:

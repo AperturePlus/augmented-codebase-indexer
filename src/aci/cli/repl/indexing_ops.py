@@ -391,18 +391,54 @@ class IndexingOperations:
             self.console.print("\n[yellow]Reset cancelled.[/yellow]")
             return
 
-        self.console.print("[bold yellow]Resetting index...[/bold yellow]")
+        self.console.print("[bold yellow]Resetting index (all collections)...[/bold yellow]")
 
         try:
-            # Reset vector store
-            if hasattr(self.services.vector_store, "reset"):
-                coro = self.services.vector_store.reset()
-                if self._event_loop_manager:
-                    self._event_loop_manager.run_async(coro)
-                else:
-                    import asyncio
-                    asyncio.run(coro)
-                self.console.print("  [green]✓[/green] Vector store reset.")
+            # Get all registered repositories and their collections
+            repos = self.services.metadata_store.get_repositories()
+            deleted_collections = []
+            failed_collections = []
+            
+            # Delete each repository's collection
+            for repo in repos:
+                collection_name = repo.get("collection_name")
+                if collection_name:
+                    try:
+                        coro = self.services.vector_store.delete_collection(collection_name)
+                        if self._event_loop_manager:
+                            deleted = self._event_loop_manager.run_async(coro)
+                        else:
+                            import asyncio
+                            deleted = asyncio.run(coro)
+                        if deleted:
+                            deleted_collections.append(collection_name)
+                    except Exception as e:
+                        failed_collections.append((collection_name, str(e)))
+            
+            # Also delete the default collection if it exists and wasn't already deleted
+            default_collection = self.services.config.vector_store.collection_name
+            if default_collection not in deleted_collections:
+                try:
+                    coro = self.services.vector_store.delete_collection(default_collection)
+                    if self._event_loop_manager:
+                        deleted = self._event_loop_manager.run_async(coro)
+                    else:
+                        import asyncio
+                        deleted = asyncio.run(coro)
+                    if deleted:
+                        deleted_collections.append(default_collection)
+                except Exception as e:
+                    failed_collections.append((default_collection, str(e)))
+            
+            if deleted_collections:
+                self.console.print(f"  [green]✓[/green] Deleted {len(deleted_collections)} collection(s).")
+            else:
+                self.console.print("  [yellow]![/yellow] No collections found to delete.")
+            
+            if failed_collections:
+                self.console.print(f"  [yellow]![/yellow] Failed to delete {len(failed_collections)} collection(s):")
+                for name, error in failed_collections:
+                    self.console.print(f"      - {name}: {error}")
 
             # Clear metadata
             self.services.metadata_store.clear_all()

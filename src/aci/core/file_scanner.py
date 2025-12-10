@@ -20,6 +20,40 @@ logger = logging.getLogger(__name__)
 # Default path to the languages configuration file
 _DEFAULT_LANGUAGES_CONFIG = Path(__file__).parent / "languages.yaml"
 
+# Sensitive patterns that are ALWAYS excluded regardless of user config
+# These patterns protect credentials, keys, and private data from being indexed
+SENSITIVE_DENYLIST: frozenset[str] = frozenset([
+    # SSH and GPG directories
+    ".ssh",
+    ".gnupg",
+    # SSH key files
+    "id_rsa",
+    "id_rsa.pub",
+    "id_ed25519",
+    "id_ed25519.pub",
+    "id_ecdsa",
+    "id_ecdsa.pub",
+    "id_dsa",
+    "id_dsa.pub",
+    # Certificates and keys (glob patterns)
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.crt",
+    "*.keystore",
+    # Environment files
+    ".env",
+    ".env.*",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    # Other sensitive files
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+])
+
 
 class LanguageRegistry:
     """
@@ -367,6 +401,33 @@ class FileScanner(FileScannerInterface):
         else:
             self._pathspec = None
 
+    def _matches_sensitive_denylist(self, path: Path) -> bool:
+        """
+        Check if a path matches any pattern in the sensitive denylist.
+
+        This check cannot be overridden by user configuration and ensures
+        that sensitive files (credentials, keys, etc.) are never indexed.
+
+        Args:
+            path: Path to check (file or directory)
+
+        Returns:
+            True if the path matches a sensitive pattern and should be excluded
+        """
+        import fnmatch
+
+        name = path.name
+
+        for pattern in SENSITIVE_DENYLIST:
+            # Check exact match first (for directory names like .ssh, .gnupg)
+            if name == pattern:
+                return True
+            # Check glob pattern match (for patterns like *.pem, *.key, .env.*)
+            if fnmatch.fnmatch(name, pattern):
+                return True
+
+        return False
+
     def set_extensions(self, extensions: Set[str]) -> None:
         """Set the file extensions to include in scanning."""
         self._extensions = extensions
@@ -380,6 +441,9 @@ class FileScanner(FileScannerInterface):
         """
         Check if a path should be ignored based on patterns.
 
+        The sensitive denylist is always checked first and cannot be overridden
+        by user configuration. This ensures credentials and keys are never indexed.
+
         Args:
             path: Path to check
             root_path: Root directory for relative path calculation
@@ -387,6 +451,11 @@ class FileScanner(FileScannerInterface):
         Returns:
             True if the path should be ignored
         """
+        # Always check sensitive denylist first (cannot be overridden by user config)
+        if self._matches_sensitive_denylist(path):
+            logger.debug(f"Ignoring sensitive file/directory: {path}")
+            return True
+
         if self._pathspec is None:
             return False
 

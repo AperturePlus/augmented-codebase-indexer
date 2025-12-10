@@ -51,6 +51,7 @@ class MockVectorStore:
         query_vector: list,
         limit: int = 10,
         file_filter: str = None,
+        collection_name: str = None,
     ) -> list:
         self.search_called = True
         self.search_count += 1
@@ -62,7 +63,7 @@ class MockVectorStore:
     async def get_by_id(self, chunk_id: str):
         return None
 
-    async def get_stats(self) -> dict:
+    async def get_stats(self, collection_name: str = None) -> dict:
         return {"total_vectors": 0, "total_files": 0}
 
 
@@ -336,7 +337,7 @@ class TestFileFilterApplication:
         received_filters = []
 
         class TrackingVectorStore(MockVectorStore):
-            async def search(self, query_vector, limit=10, file_filter=None):
+            async def search(self, query_vector, limit=10, file_filter=None, collection_name=None):
                 received_filters.append(("vector", file_filter))
                 return []
 

@@ -95,14 +95,29 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/status")
-    async def status():
+    async def status(path: Optional[str] = None):
         try:
             metadata_stats = metadata_store.get_stats()
-            vector_stats = await vector_store.get_stats()
+
+            # If path provided, get collection-specific stats
+            collection_name = None
+            if path:
+                status_path = Path(path)
+                if status_path.exists() and status_path.is_dir():
+                    status_path_abs = str(status_path.resolve())
+                    index_info = metadata_store.get_index_info(status_path_abs)
+                    if index_info:
+                        collection_name = index_info.get("collection_name")
+                        if not collection_name:
+                            from aci.core.path_utils import get_collection_name_for_path
+                            collection_name = get_collection_name_for_path(status_path_abs)
+
+            vector_stats = await vector_store.get_stats(collection_name=collection_name)
             return {
                 "metadata": metadata_stats,
                 "vector_store": vector_stats,
                 "embedding_model": cfg.embedding.model,
+                "collection_name": collection_name,
             }
         except Exception as exc:
             logger.error(f"Error in /status: {exc}", exc_info=True)
@@ -194,15 +209,13 @@ def create_app() -> FastAPI:
                     detail=f"Path has not been indexed: {path}. Run /index first.",
                 )
 
-            # Switch to the correct collection for this codebase
+            # Get collection name for this codebase
             # For backward compatibility, generate collection name if not stored
             collection_name = index_info.get("collection_name")
             if not collection_name:
                 from aci.core.path_utils import get_collection_name_for_path
                 collection_name = get_collection_name_for_path(search_path_abs)
                 metadata_store.register_repository(search_path_abs, collection_name)
-            if hasattr(vector_store, "set_collection"):
-                vector_store.set_collection(collection_name)
 
             apply_rerank = cfg.search.use_rerank if use_rerank is None else use_rerank
 
@@ -217,12 +230,14 @@ def create_app() -> FastAPI:
                 elif mode_lower == "hybrid":
                     search_mode = SearchMode.HYBRID
 
+            # Pass collection_name explicitly to avoid shared state mutation
             results = await search_service.search(
                 query=q,
                 limit=limit,
                 file_filter=file_filter,
                 use_rerank=apply_rerank,
                 search_mode=search_mode,
+                collection_name=collection_name,
             )
             return {"results": [_to_response_item(r) for r in results]}
         except HTTPException:

@@ -20,16 +20,22 @@ class InMemoryVectorStore(VectorStoreInterface):
 
     Implements VectorStoreInterface without requiring Qdrant.
     Uses cosine similarity for search.
+    Supports multiple collections for isolation testing.
     """
 
-    def __init__(self, vector_size: int = 1536):
+    def __init__(self, vector_size: int = 1536, collection_name: str = "default"):
         """
         Initialize in-memory store.
 
         Args:
             vector_size: Expected dimension of vectors
+            collection_name: Default collection name
         """
         self._vector_size = vector_size
+        self._collection_name = collection_name
+        # Multi-collection storage: collection_name -> {chunk_id -> data}
+        self._collections: Dict[str, Dict[str, tuple[List[float], dict]]] = {}
+        # Legacy single-collection references for backward compatibility
         self._vectors: Dict[str, List[float]] = {}
         self._payloads: Dict[str, dict] = {}
 
@@ -37,21 +43,30 @@ class InMemoryVectorStore(VectorStoreInterface):
         """Insert or update a vector with its payload."""
         self._vectors[chunk_id] = vector
         self._payloads[chunk_id] = payload
+        # Also store in collection-based storage
+        if self._collection_name not in self._collections:
+            self._collections[self._collection_name] = {}
+        self._collections[self._collection_name][chunk_id] = (vector, payload)
 
     async def upsert_batch(self, points: List[tuple[str, List[float], dict]]) -> None:
         """Batch insert or update vectors."""
         for chunk_id, vector, payload in points:
-            self._vectors[chunk_id] = vector
-            self._payloads[chunk_id] = payload
+            await self.upsert(chunk_id, vector, payload)
 
     async def delete_by_file(self, file_path: str) -> int:
         """Delete all vectors for a file, return count deleted."""
+        collection_data = self._collections.get(self._collection_name, {})
         to_delete = [
-            cid for cid, payload in self._payloads.items() if payload.get("file_path") == file_path
+            cid for cid, (_, payload) in collection_data.items() 
+            if payload.get("file_path") == file_path
         ]
         for cid in to_delete:
-            del self._vectors[cid]
-            del self._payloads[cid]
+            del collection_data[cid]
+            # Also clean up legacy storage
+            if cid in self._vectors:
+                del self._vectors[cid]
+            if cid in self._payloads:
+                del self._payloads[cid]
         return len(to_delete)
 
     async def search(
@@ -59,6 +74,7 @@ class InMemoryVectorStore(VectorStoreInterface):
         query_vector: List[float],
         limit: int = 10,
         file_filter: Optional[str] = None,
+        collection_name: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         Search for similar vectors using cosine similarity.
@@ -67,14 +83,22 @@ class InMemoryVectorStore(VectorStoreInterface):
             query_vector: Query embedding vector
             limit: Maximum results to return
             file_filter: Optional glob pattern for file paths
+            collection_name: Optional collection to search. If provided, searches
+                that collection without modifying instance state. If None, uses
+                the instance's default collection.
 
         Returns:
             List of SearchResult sorted by score descending
         """
         results = []
+        
+        # Use provided collection or fall back to instance default
+        target_collection = collection_name or self._collection_name
+        
+        # Get data from the target collection
+        collection_data = self._collections.get(target_collection, {})
 
-        for chunk_id, vector in self._vectors.items():
-            payload = self._payloads.get(chunk_id, {})
+        for chunk_id, (vector, payload) in collection_data.items():
             file_path = payload.get("file_path", "")
 
             # Apply file filter if specified
@@ -104,22 +128,40 @@ class InMemoryVectorStore(VectorStoreInterface):
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
-    async def get_stats(self) -> dict:
-        """Get storage statistics."""
-        unique_files = set(p.get("file_path", "") for p in self._payloads.values())
+    async def get_stats(self, collection_name: Optional[str] = None) -> dict:
+        """
+        Get storage statistics.
+
+        Args:
+            collection_name: Optional collection to get stats for. If provided,
+                returns stats for that collection without modifying instance state.
+                If None, uses the instance's default collection.
+
+        Returns:
+            Dictionary with storage statistics
+        """
+        # Use provided collection or fall back to instance default
+        target_collection = collection_name or self._collection_name
+        collection_data = self._collections.get(target_collection, {})
+        
+        unique_files = set(
+            payload.get("file_path", "") 
+            for _, payload in collection_data.values()
+        )
         return {
-            "total_vectors": len(self._vectors),
+            "total_vectors": len(collection_data),
             "total_files": len(unique_files),
-            "collection_name": "in_memory",
+            "collection_name": target_collection,
             "vector_size": self._vector_size,
         }
 
     async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
         """Get a specific chunk by ID."""
-        if chunk_id not in self._vectors:
+        collection_data = self._collections.get(self._collection_name, {})
+        if chunk_id not in collection_data:
             return None
 
-        payload = self._payloads.get(chunk_id, {})
+        vector, payload = collection_data[chunk_id]
         return SearchResult(
             chunk_id=chunk_id,
             file_path=payload.get("file_path", ""),
@@ -138,9 +180,28 @@ class InMemoryVectorStore(VectorStoreInterface):
         """Clear all stored data."""
         self.clear()
 
+    async def delete_collection(self, collection_name: str) -> bool:
+        """
+        Delete a collection entirely.
+
+        Args:
+            collection_name: Name of the collection to delete
+
+        Returns:
+            True if the collection was deleted, False if it did not exist
+        """
+        if collection_name in self._collections:
+            del self._collections[collection_name]
+            return True
+        return False
+
     async def get_all_file_paths(self) -> List[str]:
         """Get all unique file paths in the store."""
-        unique_files = set(p.get("file_path", "") for p in self._payloads.values())
+        collection_data = self._collections.get(self._collection_name, {})
+        unique_files = set(
+            payload.get("file_path", "") 
+            for _, payload in collection_data.values()
+        )
         return [f for f in unique_files if f]  # Filter out empty strings
 
     def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
@@ -161,6 +222,20 @@ class InMemoryVectorStore(VectorStoreInterface):
         """Clear all stored data."""
         self._vectors.clear()
         self._payloads.clear()
+        self._collections.clear()
+    
+    def set_collection(self, collection_name: str) -> None:
+        """
+        Switch to a different collection.
+        
+        Args:
+            collection_name: Name of the collection to use.
+        """
+        self._collection_name = collection_name
+    
+    def get_collection_name(self) -> str:
+        """Get the current collection name."""
+        return self._collection_name
 
 
 class LocalEmbeddingClient(EmbeddingClientInterface):
