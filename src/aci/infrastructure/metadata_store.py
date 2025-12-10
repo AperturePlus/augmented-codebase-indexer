@@ -14,6 +14,21 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _now_with_tz() -> datetime:
+    """Get current datetime with local timezone (default UTC+8)."""
+    from datetime import timezone as tz
+    # Try to get local timezone, fallback to UTC+8
+    try:
+        return datetime.now().astimezone()
+    except Exception:
+        return datetime.now(tz(timedelta(hours=8)))
+
+
+def _now_str() -> str:
+    """Get current datetime as ISO string for SQLite."""
+    return _now_with_tz().strftime("%Y-%m-%d %H:%M:%S")
+
+
 class MetadataStoreError(Exception):
     """Base exception for metadata store errors."""
 
@@ -306,7 +321,7 @@ class IndexMetadataStore:
         conn = self._get_connection()
 
         try:
-            cutoff = datetime.now() - timedelta(days=days)
+            cutoff = _now_with_tz() - timedelta(days=days)
             cursor = conn.execute(
                 """
                 SELECT file_path FROM indexed_files
@@ -416,16 +431,17 @@ class IndexMetadataStore:
         conn = self._get_connection()
 
         try:
+            now = _now_str()
             conn.execute(
                 """
-                INSERT INTO index_info (index_id, root_path, collection_name, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO index_info (index_id, root_path, collection_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(index_id) DO UPDATE SET
                     root_path = excluded.root_path,
                     collection_name = COALESCE(excluded.collection_name, collection_name),
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = ?
                 """,
-                (index_id, root_path, collection_name),
+                (index_id, root_path, collection_name, now, now, now),
             )
             conn.commit()
 

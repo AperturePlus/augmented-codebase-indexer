@@ -4,19 +4,31 @@ A Python tool for semantic code search with precise line-level location results.
 
 ## Features
 
-- Semantic code search using embeddings
+- Semantic code search using embeddings (OpenAI-compatible API)
 - Precise line-level location results
-- Support for Python, JavaScript/TypeScript, and Go
-- Tree-sitter based AST parsing
+- Support for Python, JavaScript/TypeScript, Go, Java, C, C++
+- Tree-sitter based AST parsing for accurate code chunking
+- Hybrid search (semantic + keyword/grep)
 - Qdrant vector database integration
-- Incremental indexing
-- **MCP (Model Context Protocol) interface for LLM integration**
+- Incremental indexing for efficient updates
+- Multiple interfaces: CLI, HTTP API, MCP (for LLM integration)
+- Auto-detection of local timezone for timestamps
 
 ## Installation
 
 ```bash
+# Using uv (recommended)
+uv sync
+
+# Or using pip
 pip install -e ".[dev]"
 ```
+
+## Requirements
+
+- Python 3.10+
+- Qdrant (auto-started via Docker if not running)
+- OpenAI-compatible embedding API (OpenAI, SiliconFlow, etc.)
 
 ## Usage
 
@@ -133,45 +145,64 @@ aci search "database query -path:tests -path:fixtures"
 
 ## MCP Integration
 
-ACI now supports the Model Context Protocol (MCP), allowing large language models to directly interact with your codebase indexing and search capabilities.
+ACI supports the Model Context Protocol (MCP), allowing LLMs to directly interact with your codebase indexing and search capabilities.
 
 ### Quick Start with MCP
 
-1. Install ACI with dependencies:
-```bash
-pip install -e ".[dev]"
-```
+1. Configure your MCP client (e.g., Kiro, Claude Desktop, Cursor):
 
-2. Configure your MCP client (e.g., Kiro, Claude Desktop) to use ACI:
 ```json
 {
   "mcpServers": {
     "aci": {
       "command": "uv",
       "args": ["run", "aci-mcp"],
-      "env": {
-        "ACI_EMBEDDING_API_KEY": "your_api_key_here"
-      }
+      "cwd": "/path/to/your/project"
     }
   }
 }
 ```
 
-3. Start using natural language to interact with your codebase:
-   - "Index the /path/to/project directory"
+2. Ensure `.env` exists in the working directory with required settings (see `.env.example`)
+
+3. Use natural language to interact with your codebase:
+   - "Index the current directory"
    - "Search for authentication functions"
    - "Show me the index status"
 
-For detailed MCP setup and usage, see [MCP_USAGE.md](./MCP_USAGE.md).
-
 ### Available MCP Tools
 
-- `index_codebase` - Index a directory for semantic search
-- `search_code` - Search code using natural language queries
-- `get_index_status` - Get indexing statistics and health info
-- `update_index` - Incrementally update the index
-- `list_indexed_repos` - List all indexed repositories
+| Tool | Description |
+|------|-------------|
+| `index_codebase` | Index a directory for semantic search |
+| `search_code` | Search code using natural language queries |
+| `get_index_status` | Get indexing statistics and health info |
+| `update_index` | Incrementally update the index |
+| `list_indexed_repos` | List all indexed repositories |
+
+### Testing MCP
+
+```bash
+# Test with MCP Inspector (Web UI)
+npx @modelcontextprotocol/inspector uv run aci-mcp
+
+# Test via Python script
+uv run python tests/test_mcp_call/test_stdio.py
+
+# Test indexing
+uv run python tests/test_mcp_call/test_index_codebase.py
 ```
+
+### Debug Mode
+
+Set `ACI_ENV=development` in `.env` to enable debug logging:
+```
+ACI_ENV=development
+```
+
+Debug messages are printed to stderr and visible in MCP Inspector's notifications.
+
+> **Note**: MCP uses single-threaded indexing for stdio compatibility. For faster indexing of large codebases, use the CLI: `uv run aci index .`
 
 ## Security
 
@@ -189,36 +220,27 @@ These protections cannot be overridden by user configuration.
 
 ## Configuration
 
-Use a `.env` file (required). The app auto-loads `.env`; YAML configs are disabled:
+Configuration is done via `.env` file or environment variables. Copy `.env.example` to `.env` and fill in your settings:
 
-```
-ACI_EMBEDDING_API_URL=https://api.openai.com/v1/embeddings
-ACI_EMBEDDING_API_KEY=your_embedding_api_key   # required
-ACI_EMBEDDING_MODEL=text-embedding-3-small
-ACI_EMBEDDING_DIMENSION=1024                  # must match vector size below
-ACI_VECTOR_STORE_HOST=localhost
-ACI_VECTOR_STORE_PORT=6333
-ACI_VECTOR_STORE_VECTOR_SIZE=1024
-ACI_INDEXING_MAX_WORKERS=4
-
-# Optional reranker
-ACI_SEARCH_USE_RERANK=false
-ACI_SEARCH_RERANK_API_URL=https://your-rerank-endpoint.example.com
-ACI_SEARCH_RERANK_API_KEY=your_rerank_api_key
-ACI_SEARCH_RERANK_MODEL=bge-reranker-large
-ACI_SEARCH_RERANK_TIMEOUT=30
-ACI_SEARCH_RERANK_ENDPOINT=/v1/rerank  # override if provider uses a different path
-
-# Optional: overrides for chunking/ignores (comma-separated)
-# ACI_INDEXING_FILE_EXTENSIONS=.py,.js,.ts,.go
-# ACI_INDEXING_IGNORE_PATTERNS=__pycache__,*.pyc,.git,node_modules
+```bash
+cp .env.example .env
 ```
 
-All settings must come from `.env`/environment variables; YAML/JSON configs are not used.
+Key settings:
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ACI_EMBEDDING_API_KEY` | API key for embedding service | Yes |
+| `ACI_EMBEDDING_API_URL` | Embedding API endpoint | No (defaults to OpenAI) |
+| `ACI_EMBEDDING_MODEL` | Model name | No |
+| `ACI_VECTOR_STORE_HOST` | Qdrant host | No (defaults to localhost) |
+| `ACI_VECTOR_STORE_PORT` | Qdrant port | No (defaults to 6333) |
+| `ACI_SERVER_HOST` | HTTP server host | No (defaults to 0.0.0.0) |
+| `ACI_SERVER_PORT` | HTTP server port | No (defaults to 8000) |
+| `ACI_ENV` | Environment (development/production) | No |
+
+See `.env.example` for the full list of options.
 
 The CLI and HTTP server will attempt to auto-start a local Qdrant Docker container on port `6333`
 if one is not already running.
 
-## License
 
-MIT

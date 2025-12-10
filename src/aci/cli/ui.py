@@ -25,7 +25,7 @@ ACI_BANNER = r"""
 /_/   \_\____|___| |____/|_| |_|\___|_|_|
 """
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def render_welcome_banner(console: Console) -> None:

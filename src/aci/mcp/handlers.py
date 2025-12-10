@@ -1,6 +1,8 @@
 """MCP tool handlers for ACI."""
 import json
 import os
+import sys
+import time
 from pathlib import Path
 from typing import Any
 from mcp.types import TextContent
@@ -9,6 +11,17 @@ from aci.mcp.services import get_initialized_services, get_indexing_lock, MAX_WO
 from aci.services import SearchMode
 
 _HANDLERS = {}
+
+
+def _is_debug() -> bool:
+    """Check if debug mode is enabled (reads env each time for flexibility)."""
+    return os.environ.get("ACI_ENV", "production").lower() == "development"
+
+
+def _debug(msg: str):
+    """Print debug message to stderr if in development mode."""
+    if _is_debug():
+        print(f"[ACI-DEBUG] {msg}", file=sys.stderr, flush=True)
 
 def _register(name: str):
     def decorator(fn):
@@ -31,36 +44,46 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
     path_str = arguments["path"]
     workers = arguments.get("workers")
+    start_time = time.time()
+    _debug(f"index_codebase called with path: {path_str}, workers: {workers}")
 
     # Validate path before any indexing operation
     validation = validate_indexable_path(path_str)
     if not validation.valid:
+        _debug(f"Path validation failed: {validation.error_message}")
         return [TextContent(
             type="text",
             text=f"Error: {validation.error_message} (path: {path_str})"
         )]
 
     path = Path(path_str)
+    _debug(f"Resolved path: {path.resolve()}")
+    
     cfg, _, indexing_service, _, _ = get_initialized_services()
+    _debug(f"Services initialized, embedding_url={cfg.embedding.api_url}, model={cfg.embedding.model}")
+    _debug(f"API key present: {bool(cfg.embedding.api_key)}, key prefix: {cfg.embedding.api_key[:8] if cfg.embedding.api_key else 'NONE'}...")
 
-    # Cap workers to prevent resource exhaustion (matches HTTP API limit)
-    cpu_count = os.cpu_count() or 4
-    if workers is not None:
-        workers = min(workers, MAX_WORKERS, cpu_count * 2)
-    else:
-        workers = min(cfg.indexing.max_workers, MAX_WORKERS, cpu_count * 2)
+    # IMPORTANT: Force single-threaded mode for MCP
+    # ProcessPoolExecutor conflicts with MCP's stdio event loop, causing hangs.
+    # Sequential processing is slower but reliable in stdio context.
+    workers = 1
+    _debug(f"Using {workers} workers (forced single-threaded for MCP stdio compatibility)")
 
     # Use lock to prevent concurrent indexing operations
     indexing_lock = get_indexing_lock()
+    _debug("Acquiring indexing lock...")
     async with indexing_lock:
+        _debug("Lock acquired, starting indexing...")
         indexing_service._max_workers = workers
         result = await indexing_service.index_directory(path)
+        _debug(f"Indexing completed in {time.time() - start_time:.2f}s")
 
     response = {"status": "success", "total_files": result.total_files,
         "total_chunks": result.total_chunks, "duration_seconds": result.duration_seconds,
         "failed_files": result.failed_files[:10] if result.failed_files else []}
     if result.failed_files and len(result.failed_files) > 10:
         response["failed_files_truncated"] = len(result.failed_files) - 10
+    _debug(f"Result: files={result.total_files}, chunks={result.total_chunks}")
     return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
 
@@ -219,22 +242,56 @@ async def _handle_get_status(arguments: dict) -> list[TextContent]:
 @_register("update_index")
 async def _handle_update_index(arguments: dict) -> list[TextContent]:
     path_str = arguments["path"]
+    start_time = time.time()
+    _debug(f"update_index called with path: {path_str}")
 
     # Validate path before any indexing operation
     validation = validate_indexable_path(path_str)
     if not validation.valid:
+        _debug(f"Path validation failed: {validation.error_message}")
         return [TextContent(
             type="text",
             text=f"Error: {validation.error_message} (path: {path_str})"
         )]
 
     path = Path(path_str)
-    cfg, _, indexing_service, _, _ = get_initialized_services()
+    _debug(f"Resolved path: {path.resolve()}")
+    
+    cfg, _, indexing_service, metadata_store, _ = get_initialized_services()
+    _debug("Services initialized")
+
+    # Check if path is indexed
+    abs_path = str(path.resolve())
+    index_info = metadata_store.get_index_info(abs_path)
+    if index_info is None:
+        _debug(f"Path not indexed: {path}")
+        return [TextContent(
+            type="text",
+            text=f"Error: Path has not been indexed: {path}. Run index_codebase first."
+        )]
+    _debug(f"Index info: {index_info}")
+
+    # Check if we have file hashes (required for incremental update)
+    existing_hashes = metadata_store.get_all_file_hashes()
+    _debug(f"Existing file hashes count: {len(existing_hashes)}")
+    
+    if len(existing_hashes) == 0:
+        _debug("No file hashes found - index metadata is incomplete")
+        return [TextContent(
+            type="text",
+            text=(
+                f"Error: Index metadata is incomplete for {path}. "
+                "File hashes are missing. Please run index_codebase again to rebuild the index."
+            )
+        )]
 
     # Use lock to prevent concurrent indexing operations
     indexing_lock = get_indexing_lock()
+    _debug("Acquiring indexing lock...")
     async with indexing_lock:
+        _debug("Lock acquired, starting incremental update...")
         result = await indexing_service.update_incremental(path)
+        _debug(f"Update completed in {time.time() - start_time:.2f}s")
 
         response = {
             "status": "success",
@@ -243,6 +300,7 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
             "deleted_files": result.deleted_files,
             "duration_seconds": result.duration_seconds,
         }
+        _debug(f"Result: {response}")
 
         return [TextContent(type="text", text=json.dumps(response, indent=2))]
 

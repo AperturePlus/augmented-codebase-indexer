@@ -572,25 +572,55 @@ Rerank Enabled: {cfg.search.use_rerank}"""
         raise typer.Exit(1)
 
 
+def _is_port_available(host: str, port: int) -> bool:
+    """Check if a port is available for binding."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def _find_available_port(host: str, start_port: int, max_attempts: int = 10) -> int:
+    """Find an available port starting from start_port."""
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if _is_port_available(host, port):
+            return port
+    raise RuntimeError(f"No available port found in range {start_port}-{start_port + max_attempts - 1}")
+
+
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="HTTP host"),
-    port: int = typer.Option(8000, "--port", "-p", help="HTTP port"),
+    host: Optional[str] = typer.Option(None, "--host", help="HTTP host (default from ACI_SERVER_HOST or 0.0.0.0)"),
+    port: Optional[int] = typer.Option(None, "--port", "-p", help="HTTP port (default from ACI_SERVER_PORT or 8000)"),
 ):
     """Start the HTTP API server."""
     import uvicorn
 
     try:
-        # Build FastAPI app directly (ensures config + Qdrant checks)
-        # Note: Ensure create_app is available in aci.__main__ or similar if not here
         from aci import create_app
-        
+        from aci.core.config import load_config
+
+        # Load config to get server defaults
+        cfg = load_config()
+        actual_host = host if host is not None else cfg.server.host
+        requested_port = port if port is not None else cfg.server.port
+
+        # Find available port if requested port is occupied
+        actual_port = _find_available_port(actual_host, requested_port)
+        if actual_port != requested_port:
+            console.print(f"[yellow]Port {requested_port} is in use, using port {actual_port}[/yellow]")
+
         app = create_app()
-        console.print(f"[bold green]Starting API server at http://{host}:{port}[/bold green]")
+        console.print(f"[bold green]Starting API server at http://{actual_host}:{actual_port}[/bold green]")
         uvicorn.run(
             app,
-            host=host,
-            port=port,
+            host=actual_host,
+            port=actual_port,
             reload=False,
             log_level="info",
         )

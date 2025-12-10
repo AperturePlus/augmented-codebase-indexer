@@ -11,6 +11,23 @@ is split across submodules:
 """
 
 import asyncio
+import os
+import sys
+
+# Load .env BEFORE importing handlers (so ACI_ENV is available)
+# Try multiple locations: CWD, then script directory
+from pathlib import Path
+from dotenv import load_dotenv
+
+# First try CWD
+if not load_dotenv():
+    # Fallback: try to find .env relative to this file's package
+    # This helps when MCP is started from a different working directory
+    _pkg_dir = Path(__file__).parent.parent.parent  # src/aci -> src -> project root
+    _env_file = _pkg_dir / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+        print(f"[ACI-MCP] Loaded .env from {_env_file}", file=__import__('sys').stderr, flush=True)
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -38,8 +55,13 @@ async def _call_tool(name: str, arguments):
     return await call_tool(name, arguments)
 
 
-async def main():
-    """Run the MCP server."""
+async def _run_server():
+    """Run the MCP server (async implementation)."""
+    # Print startup info to stderr (won't interfere with stdio protocol)
+    env = os.environ.get("ACI_ENV", "production")
+    if env == "development":
+        print(f"[ACI-MCP] Starting in {env} mode (debug enabled)", file=sys.stderr, flush=True)
+    
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(read_stream, write_stream, app.create_initialization_options())
@@ -48,5 +70,10 @@ async def main():
         await cleanup_services()
 
 
+def main():
+    """Entry point for the MCP server."""
+    asyncio.run(_run_server())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

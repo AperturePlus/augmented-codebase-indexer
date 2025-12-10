@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -110,9 +110,12 @@ class IndexingService:
         start_time = time.time()
         result = IndexingResult()
         
+        logger.debug(f"index_directory: starting for {root_path}")
+        
         # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
+        logger.debug(f"index_directory: collection_name={collection_name}")
         
         # Switch vector store to use repository-specific collection
         if hasattr(self._vector_store, "set_collection"):
@@ -120,11 +123,14 @@ class IndexingService:
         
         # Register repository with collection name
         self._metadata_store.register_repository(abs_root, collection_name)
+        logger.debug("index_directory: repository registered")
 
         # Scan files
         self._report_progress(0, 0, "Scanning files...")
+        logger.debug("index_directory: scanning files...")
         files = list(self._file_scanner.scan(root_path))
         total_files = len(files)
+        logger.debug(f"index_directory: found {total_files} files")
 
         if total_files == 0:
             result.duration_seconds = time.time() - start_time
@@ -362,7 +368,7 @@ class IndexingService:
                         language=info["language"],
                         line_count=info["line_count"],
                         chunk_count=info["chunk_count"],
-                        indexed_at=datetime.now(),
+                        indexed_at=datetime.now().astimezone(),
                         modified_time=info["modified_time"],
                     )
                 )

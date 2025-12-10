@@ -171,6 +171,14 @@ class LoggingConfig:
 
 
 @dataclass
+class ServerConfig:
+    """Configuration for HTTP server."""
+
+    host: str = field(default_factory=lambda: _get_default("server", "host", "0.0.0.0"))
+    port: int = field(default_factory=lambda: _get_default("server", "port", 8000))
+
+
+@dataclass
 class ACIConfig:
     """Main configuration class for Project ACI."""
 
@@ -179,6 +187,7 @@ class ACIConfig:
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
 
     def apply_env_overrides(self) -> "ACIConfig":
         """
@@ -233,6 +242,9 @@ class ACIConfig:
             "ACI_SEARCH_RERANK_ENDPOINT": ("search", "rerank_endpoint", str),
             # Logging config
             "ACI_LOGGING_LEVEL": ("logging", "level", str),
+            # Server config
+            "ACI_SERVER_HOST": ("server", "host", str),
+            "ACI_SERVER_PORT": ("server", "port", int),
         }
 
         for env_var, (section, key, converter) in env_mappings.items():
@@ -286,6 +298,7 @@ class ACIConfig:
             indexing=create_subconfig(IndexingConfig, data.get("indexing", {})),
             search=create_subconfig(SearchConfig, data.get("search", {})),
             logging=create_subconfig(LoggingConfig, data.get("logging", {})),
+            server=create_subconfig(ServerConfig, data.get("server", {})),
         )
 
     def to_dict(self) -> dict:
