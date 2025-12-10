@@ -27,6 +27,12 @@ aci index /path/to/codebase
 # Search for code
 aci search "function that handles authentication"
 
+# Search with file path filter
+aci search "parse config path:*.py"
+
+# Search excluding certain paths
+aci search "database connection -path:tests"
+
 # Check index status
 aci status
 
@@ -71,7 +77,7 @@ This launches an interactive REPL (Read-Eval-Print Loop) with:
 | Command | Description |
 |---------|-------------|
 | `index <path>` | Index a directory for semantic search |
-| `search <query>` | Search the indexed codebase |
+| `search <query>` | Search the indexed codebase (supports modifiers) |
 | `status` | Show index status and statistics |
 | `update <path>` | Incrementally update the index |
 | `list` | List all indexed repositories |
@@ -101,8 +107,28 @@ aci> search "authentication handler"
 Found 3 results:
 ...
 
+aci> search "config parser path:src/*.py -path:tests"
+Found 2 results:
+...
+
 aci> exit
 Goodbye!
+```
+
+## Search Query Modifiers
+
+Search queries support inline modifiers to filter results:
+
+| Modifier | Description | Example |
+|----------|-------------|---------|
+| `path:<pattern>` | Include only files matching pattern | `path:*.py`, `path:src/**` |
+| `file:<pattern>` | Alias for `path:` | `file:handlers.py` |
+| `-path:<pattern>` | Exclude files matching pattern | `-path:tests` |
+| `exclude:<pattern>` | Alias for `-path:` | `exclude:fixtures` |
+
+Multiple exclusions can be combined:
+```bash
+aci search "database query -path:tests -path:fixtures"
 ```
 
 ## MCP Integration

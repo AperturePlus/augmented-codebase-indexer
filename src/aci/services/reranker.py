@@ -11,7 +11,7 @@ import httpx
 
 from aci.core.docstring_formatter import DocstringFormatter
 from aci.infrastructure.vector_store import SearchResult
-from aci.services.search_service import RerankerInterface
+from aci.services.search_types import RerankerInterface
 
 logger = logging.getLogger(__name__)
 

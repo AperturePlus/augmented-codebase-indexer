@@ -75,7 +75,7 @@ class TrackingVectorStore:
     async def search(self, *args, **kwargs):
         return []
 
-    async def get_all_file_paths(self):
+    async def get_all_file_paths(self, collection_name=None):
         return []
 
     async def delete_by_file(self, file_path: str) -> int:

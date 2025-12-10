@@ -490,17 +490,30 @@ class QdrantVectorStore(VectorStoreInterface):
                 f"collection={self._collection_name}, id={chunk_id}): {e}"
             ) from e
 
-    async def get_all_file_paths(self) -> List[str]:
-        """Get all unique file paths in the store."""
+    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+        """
+        Get all unique file paths in the store.
+
+        Args:
+            collection_name: Optional collection to query. If provided, returns
+                file paths from that collection without modifying instance state.
+                If None, uses the instance's default collection.
+
+        Returns:
+            List of unique file paths
+        """
         await self.initialize()
         client = await self._get_client()
+        
+        # Use provided collection or fall back to instance default
+        target_collection = collection_name or self._collection_name
 
         try:
             unique_files = set()
             offset = None
             while True:
                 records, offset = await client.scroll(
-                    collection_name=self._collection_name,
+                    collection_name=target_collection,
                     limit=1000,
                     offset=offset,
                     with_payload=["file_path"],
@@ -518,7 +531,7 @@ class QdrantVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(
                 f"Failed to get file paths (host={self._host}, port={self._port}, "
-                f"collection={self._collection_name}): {e}"
+                f"collection={target_collection}): {e}"
             ) from e
 
     async def reset(self) -> None:

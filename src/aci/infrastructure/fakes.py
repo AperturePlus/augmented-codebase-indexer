@@ -195,9 +195,21 @@ class InMemoryVectorStore(VectorStoreInterface):
             return True
         return False
 
-    async def get_all_file_paths(self) -> List[str]:
-        """Get all unique file paths in the store."""
-        collection_data = self._collections.get(self._collection_name, {})
+    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+        """
+        Get all unique file paths in the store.
+
+        Args:
+            collection_name: Optional collection to query. If provided, returns
+                file paths from that collection without modifying instance state.
+                If None, uses the instance's default collection.
+
+        Returns:
+            List of unique file paths
+        """
+        # Use provided collection or fall back to instance default
+        target_collection = collection_name or self._collection_name
+        collection_data = self._collections.get(target_collection, {})
         unique_files = set(
             payload.get("file_path", "") 
             for _, payload in collection_data.values()

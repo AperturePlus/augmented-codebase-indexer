@@ -99,8 +99,18 @@ class VectorStoreInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_all_file_paths(self) -> List[str]:
-        """Get all unique file paths in the store."""
+    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+        """
+        Get all unique file paths in the store.
+
+        Args:
+            collection_name: Optional collection to query. If provided, returns
+                file paths from that collection without modifying instance state.
+                If None, uses the instance's default collection.
+
+        Returns:
+            List of unique file paths
+        """
         pass
 
     async def reset(self) -> None:

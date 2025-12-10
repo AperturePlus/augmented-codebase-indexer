@@ -14,11 +14,8 @@ from aci.services.reranker import (
     OpenAICompatibleReranker,
     SimpleReranker,
 )
-from aci.services.search_service import (
-    RerankerInterface,
-    SearchMode,
-    SearchService,
-)
+from aci.services.search_service import SearchService
+from aci.services.search_types import RerankerInterface, SearchMode
 
 __all__ = [
     "IndexingService",

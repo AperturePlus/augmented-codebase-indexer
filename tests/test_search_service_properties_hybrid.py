@@ -14,7 +14,8 @@ from tests.search_service_test_utils import (
 )
 
 from aci.infrastructure.vector_store import SearchResult
-from aci.services.search_service import SearchMode, SearchService
+from aci.services.search_service import SearchService
+from aci.services.search_types import SearchMode
 
 
 class MockGrepSearcher:
@@ -57,7 +58,7 @@ class MockVectorStore:
         self.search_count += 1
         return self._results
 
-    async def get_all_file_paths(self) -> list:
+    async def get_all_file_paths(self, collection_name: str = None) -> list:
         return ["test.py"]
 
     async def get_by_id(self, chunk_id: str):

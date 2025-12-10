@@ -25,7 +25,7 @@ from aci.services.reranker import (
     OpenAICompatibleReranker,
     SimpleReranker,
 )
-from aci.services.search_service import RerankerInterface
+from aci.services.search_types import RerankerInterface
 
 
 @dataclass

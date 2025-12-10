@@ -4,7 +4,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aci.infrastructure.vector_store import SearchResult
-from aci.services.search_service import _deduplicate_results, _is_near_duplicate
+from aci.services.search_utils import deduplicate_grep_results, is_near_duplicate
 
 
 @st.composite
@@ -61,9 +61,9 @@ class TestDeduplication:
             metadata={"source": "grep"},
         )
 
-        assert _is_near_duplicate(overlapping_grep, vector_results)
+        assert is_near_duplicate(overlapping_grep, vector_results)
 
-        deduplicated = _deduplicate_results([overlapping_grep], vector_results)
+        deduplicated = deduplicate_grep_results([overlapping_grep], vector_results)
         assert len(deduplicated) == 0
 
     @given(
@@ -85,9 +85,9 @@ class TestDeduplication:
             metadata={"source": "grep"},
         )
 
-        assert not _is_near_duplicate(non_overlapping_grep, vector_results)
+        assert not is_near_duplicate(non_overlapping_grep, vector_results)
 
-        deduplicated = _deduplicate_results([non_overlapping_grep], vector_results)
+        deduplicated = deduplicate_grep_results([non_overlapping_grep], vector_results)
         assert len(deduplicated) == 1
         assert deduplicated[0] == non_overlapping_grep
 
@@ -111,9 +111,9 @@ class TestDeduplication:
             metadata={"source": "grep"},
         )
 
-        assert not _is_near_duplicate(outside_grep, vector_results)
+        assert not is_near_duplicate(outside_grep, vector_results)
 
-        deduplicated = _deduplicate_results([outside_grep], vector_results)
+        deduplicated = deduplicate_grep_results([outside_grep], vector_results)
         assert len(deduplicated) == 1
 
     @given(
@@ -161,8 +161,8 @@ class TestDeduplication:
                 )
             )
 
-        deduplicated = _deduplicate_results(overlapping_greps + non_overlapping_greps, vector_results)
+        deduplicated = deduplicate_grep_results(overlapping_greps + non_overlapping_greps, vector_results)
 
         assert len(deduplicated) == num_non_overlapping
         for result in deduplicated:
-            assert not _is_near_duplicate(result, vector_results)
+            assert not is_near_duplicate(result, vector_results)

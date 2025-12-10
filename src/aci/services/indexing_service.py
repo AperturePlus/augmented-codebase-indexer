@@ -18,14 +18,14 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from aci.core.ast_parser import ASTParserInterface, TreeSitterParser
-from aci.core.chunker import ChunkerInterface, CodeChunk, create_chunker
+from aci.core.chunker import Chunker, ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
 from aci.infrastructure.embedding_client import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
-from aci.services.indexing_worker import init_worker, process_file_worker
+from aci.services.indexing_worker import ChunkerConfig, init_worker, process_file_worker
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,20 @@ class IndexingService:
         self._batch_size = batch_size
         self._max_workers = max_workers
         self._progress_callback = progress_callback
+        
+        # Extract chunker config for parallel workers
+        self._chunker_config = self._extract_chunker_config(self._chunker)
+
+    def _extract_chunker_config(self, chunker: ChunkerInterface) -> ChunkerConfig:
+        """Extract configuration from chunker for parallel workers."""
+        if isinstance(chunker, Chunker):
+            return ChunkerConfig(
+                max_tokens=chunker._max_tokens,
+                fixed_chunk_lines=chunker._fixed_chunk_lines,
+                overlap_lines=chunker._overlap_lines,
+            )
+        # Default config for custom chunker implementations
+        return ChunkerConfig()
 
     def _report_progress(self, current: int, total: int, message: str) -> None:
         """Report progress if callback is set."""
@@ -153,7 +167,8 @@ class IndexingService:
         try:
             with ProcessPoolExecutor(
                 max_workers=self._max_workers,
-                initializer=init_worker
+                initializer=init_worker,
+                initargs=(self._chunker_config,),
             ) as executor:
                 futures = []
                 for scanned_file in files:
@@ -291,14 +306,15 @@ class IndexingService:
         """
         Generate embeddings and store chunks in batches.
         
-        Also updates metadata store after successful embedding to ensure
-        metadata is only written when embedding/storage succeeds.
+        Writes metadata immediately after each batch succeeds to maintain
+        consistency between Qdrant and SQLite if a later batch fails.
             
         Raises:
             IndexingError: If embedding API returns fewer vectors than expected
         """
         total_chunks = len(chunks)
-        successfully_embedded_files: dict[str, dict] = {}
+        # Track files already persisted to avoid duplicate metadata writes
+        persisted_files: set[str] = set()
 
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
@@ -317,6 +333,8 @@ class IndexingService:
                     actual=len(embeddings),
                 )
 
+            # Collect file info from this batch before writing vectors
+            batch_file_infos: dict[str, dict] = {}
             for chunk, embedding in zip(batch, embeddings):
                 pending_info = chunk.metadata.pop("_pending_file_info", None)
                 
@@ -331,26 +349,29 @@ class IndexingService:
                 }
                 await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
                 
-                if pending_info and pending_info["file_path"] not in successfully_embedded_files:
-                    successfully_embedded_files[pending_info["file_path"]] = pending_info
+                file_path = pending_info["file_path"] if pending_info else None
+                if file_path and file_path not in persisted_files:
+                    batch_file_infos[file_path] = pending_info
+
+            # Write metadata for this batch immediately after vectors succeed
+            for file_path, info in batch_file_infos.items():
+                self._metadata_store.upsert_file(
+                    IndexedFileInfo(
+                        file_path=info["file_path"],
+                        content_hash=info["content_hash"],
+                        language=info["language"],
+                        line_count=info["line_count"],
+                        chunk_count=info["chunk_count"],
+                        indexed_at=datetime.now(),
+                        modified_time=info["modified_time"],
+                    )
+                )
+                persisted_files.add(file_path)
 
             self._report_progress(
                 min(i + self._batch_size, total_chunks),
                 total_chunks,
                 f"Embedded {min(i + self._batch_size, total_chunks)} chunks",
-            )
-        
-        for file_path, info in successfully_embedded_files.items():
-            self._metadata_store.upsert_file(
-                IndexedFileInfo(
-                    file_path=info["file_path"],
-                    content_hash=info["content_hash"],
-                    language=info["language"],
-                    line_count=info["line_count"],
-                    chunk_count=info["chunk_count"],
-                    indexed_at=datetime.now(),
-                    modified_time=info["modified_time"],
-                )
             )
 
     async def update_incremental(self, root_path: Path) -> IndexingResult:

@@ -6,6 +6,7 @@ that run in separate processes via ProcessPoolExecutor.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -16,22 +17,39 @@ from aci.core.file_scanner import ScannedFile
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ChunkerConfig:
+    """Configuration for chunker in worker processes."""
+    max_tokens: int = 8192
+    fixed_chunk_lines: int = 50
+    overlap_lines: int = 5
+
+
 # Global variables for worker processes
 _worker_parser: Optional[ASTParserInterface] = None
 _worker_chunker: Optional[ChunkerInterface] = None
+_worker_config: Optional[ChunkerConfig] = None
 
 
-def init_worker() -> None:
+def init_worker(config: Optional[ChunkerConfig] = None) -> None:
     """
     Initialize worker process with parser and chunker.
     
     This runs once per worker process to avoid repeatedly creating
     TreeSitterParser instances (which load shared libraries) and
     Chunker instances.
+    
+    Args:
+        config: Optional chunker configuration. If None, uses defaults.
     """
-    global _worker_parser, _worker_chunker
+    global _worker_parser, _worker_chunker, _worker_config
+    _worker_config = config or ChunkerConfig()
     _worker_parser = TreeSitterParser()
-    _worker_chunker = create_chunker()
+    _worker_chunker = create_chunker(
+        max_tokens=_worker_config.max_tokens,
+        fixed_chunk_lines=_worker_config.fixed_chunk_lines,
+        overlap_lines=_worker_config.overlap_lines,
+    )
 
 
 def process_file_worker(
@@ -63,13 +81,18 @@ def process_file_worker(
     """
     try:
         # Use global instances initialized per worker
-        global _worker_parser, _worker_chunker
+        global _worker_parser, _worker_chunker, _worker_config
         
         # Fallback if not initialized (e.g., if run directly not via executor)
         if _worker_parser is None:
             _worker_parser = TreeSitterParser()
         if _worker_chunker is None:
-            _worker_chunker = create_chunker()
+            cfg = _worker_config or ChunkerConfig()
+            _worker_chunker = create_chunker(
+                max_tokens=cfg.max_tokens,
+                fixed_chunk_lines=cfg.fixed_chunk_lines,
+                overlap_lines=cfg.overlap_lines,
+            )
             
         parser = _worker_parser
         chunker = _worker_chunker
