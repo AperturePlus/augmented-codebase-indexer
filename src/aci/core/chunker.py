@@ -15,7 +15,14 @@ from typing import List, Optional
 from aci.core.ast_parser import ASTNode
 from aci.core.docstring_formatter import DocstringFormatter
 from aci.core.file_scanner import ScannedFile
+from aci.core.summary_artifact import SummaryArtifact
 from aci.core.tokenizer import TokenizerInterface
+
+# Import TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aci.core.summary_generator import SummaryGeneratorInterface
 
 logger = logging.getLogger(__name__)
 
@@ -46,25 +53,43 @@ class CodeChunk:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass
+class ChunkingResult:
+    """
+    Result of chunking a file.
+
+    Contains both code chunks and summary artifacts generated during
+    the chunking process.
+
+    Attributes:
+        chunks: List of code chunks extracted from the file
+        summaries: List of summary artifacts (function, class, file summaries)
+    """
+
+    chunks: List[CodeChunk] = field(default_factory=list)
+    summaries: List[SummaryArtifact] = field(default_factory=list)
+
+
 class ChunkerInterface(ABC):
     """Abstract interface for code chunking operations."""
 
     @abstractmethod
-    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> List[CodeChunk]:
+    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> ChunkingResult:
         """
-        Split a file into code chunks.
+        Split a file into code chunks and generate summaries.
 
         Args:
             file: The scanned file to chunk
             ast_nodes: AST nodes extracted from the file (may be empty)
 
         Returns:
-            List of CodeChunk objects
+            ChunkingResult containing chunks and summary artifacts
 
         Notes:
             - Uses AST nodes for semantic chunking when available
             - Falls back to fixed-size chunking when no AST nodes
             - Splits oversized chunks to fit within token limits
+            - Generates function/class/file summaries when SummaryGenerator is available
         """
         pass
 
@@ -635,6 +660,7 @@ class Chunker(ChunkerInterface):
     - Fixed-size chunking as fallback
     - Token limit enforcement with intelligent splitting
     - Metadata extraction (function_name, parent_class, imports)
+    - Summary generation for functions, classes, and files (when SummaryGenerator provided)
     """
 
     def __init__(
@@ -646,6 +672,7 @@ class Chunker(ChunkerInterface):
         import_registry: Optional[ImportExtractorRegistry] = None,
         smart_splitter: Optional[SmartChunkSplitter] = None,
         docstring_formatter: Optional[DocstringFormatter] = None,
+        summary_generator: Optional["SummaryGeneratorInterface"] = None,
     ):
         """
         Initialize the Chunker.
@@ -657,6 +684,8 @@ class Chunker(ChunkerInterface):
             overlap_lines: Overlap lines between fixed chunks (default: 5)
             import_registry: Registry for import extractors (uses default if None)
             smart_splitter: SmartChunkSplitter for intelligent oversized node splitting
+            docstring_formatter: Formatter for docstrings (uses default if None)
+            summary_generator: Generator for summary artifacts (optional)
         """
         self._tokenizer = tokenizer
         self._max_tokens = max_tokens
@@ -665,17 +694,19 @@ class Chunker(ChunkerInterface):
         self._import_registry = import_registry or _default_import_registry
         self._smart_splitter = smart_splitter or SmartChunkSplitter(tokenizer)
         self._doc_formatter = docstring_formatter or DocstringFormatter()
+        self._summary_generator = summary_generator
 
     def set_max_tokens(self, max_tokens: int) -> None:
         """Set the maximum token count per chunk."""
         self._max_tokens = max_tokens
 
-    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> List[CodeChunk]:
+    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> ChunkingResult:
         """
-        Split a file into code chunks.
+        Split a file into code chunks and generate summaries.
 
         Uses AST nodes for semantic chunking when available,
         falls back to fixed-size chunking otherwise.
+        Generates function/class/file summaries when SummaryGenerator is available.
         """
         # Extract file-level imports using the registry
         imports = self._import_registry.extract_imports(file.content, file.language)
@@ -688,28 +719,54 @@ class Chunker(ChunkerInterface):
         }
 
         if ast_nodes:
-            return self._chunk_with_ast(file, ast_nodes, base_metadata)
+            chunks, summaries = self._chunk_with_ast(file, ast_nodes, base_metadata, imports)
         else:
-            return self._chunk_fixed_size(file, base_metadata)
+            chunks = self._chunk_fixed_size(file, base_metadata)
+            summaries = []
+            # Generate file summary even for fixed-size chunking if generator available
+            if self._summary_generator:
+                try:
+                    file_summary = self._summary_generator.generate_file_summary(
+                        file_path=str(file.path),
+                        language=file.language,
+                        imports=imports,
+                        nodes=[],
+                    )
+                    summaries.append(file_summary)
+                except Exception as e:
+                    logger.warning(f"Failed to generate file summary for {file.path}: {e}")
+
+        return ChunkingResult(chunks=chunks, summaries=summaries)
 
     def _chunk_with_ast(
         self,
         file: ScannedFile,
         ast_nodes: List[ASTNode],
         base_metadata: dict,
-    ) -> List[CodeChunk]:
+        imports: List[str],
+    ) -> tuple[List[CodeChunk], List[SummaryArtifact]]:
         """
-        Create chunks based on AST nodes.
+        Create chunks based on AST nodes and generate summaries.
 
         Args:
             file: The scanned file
             ast_nodes: List of AST nodes
             base_metadata: Base metadata to include in all chunks
+            imports: List of import statements for file summary
 
         Returns:
-            List of CodeChunk objects
+            Tuple of (chunks, summaries)
         """
         chunks = []
+        summaries = []
+
+        # Group methods by parent class for class summary generation
+        class_methods: dict[str, List[ASTNode]] = {}
+        for node in ast_nodes:
+            if node.node_type == "method" and node.parent_name:
+                if node.parent_name not in class_methods:
+                    class_methods[node.parent_name] = []
+                class_methods[node.parent_name].append(node)
 
         for node in ast_nodes:
             # Build metadata for this chunk
@@ -717,12 +774,40 @@ class Chunker(ChunkerInterface):
 
             if node.node_type == "function":
                 metadata["function_name"] = node.name
+                # Generate function summary
+                if self._summary_generator:
+                    try:
+                        summary = self._summary_generator.generate_function_summary(
+                            node, str(file.path)
+                        )
+                        summaries.append(summary)
+                    except Exception as e:
+                        logger.warning(f"Failed to generate function summary for {node.name}: {e}")
             elif node.node_type == "method":
                 metadata["function_name"] = node.name
                 if node.parent_name:
                     metadata["parent_class"] = node.parent_name
+                # Generate function summary for methods too
+                if self._summary_generator:
+                    try:
+                        summary = self._summary_generator.generate_function_summary(
+                            node, str(file.path)
+                        )
+                        summaries.append(summary)
+                    except Exception as e:
+                        logger.warning(f"Failed to generate method summary for {node.name}: {e}")
             elif node.node_type == "class":
                 metadata["class_name"] = node.name
+                # Generate class summary with its methods
+                if self._summary_generator:
+                    try:
+                        methods = class_methods.get(node.name, [])
+                        summary = self._summary_generator.generate_class_summary(
+                            node, methods, str(file.path)
+                        )
+                        summaries.append(summary)
+                    except Exception as e:
+                        logger.warning(f"Failed to generate class summary for {node.name}: {e}")
 
             formatted_docstring = None
             docstring_prefix = ""
@@ -767,7 +852,20 @@ class Chunker(ChunkerInterface):
                 )
                 chunks.extend(sub_chunks)
 
-        return chunks
+        # Generate file summary
+        if self._summary_generator:
+            try:
+                file_summary = self._summary_generator.generate_file_summary(
+                    file_path=str(file.path),
+                    language=file.language,
+                    imports=imports,
+                    nodes=ast_nodes,
+                )
+                summaries.append(file_summary)
+            except Exception as e:
+                logger.warning(f"Failed to generate file summary for {file.path}: {e}")
+
+        return chunks, summaries
 
     def _chunk_fixed_size(
         self,
@@ -840,6 +938,7 @@ def create_chunker(
     max_tokens: int = 8192,
     fixed_chunk_lines: int = 50,
     overlap_lines: int = 5,
+    summary_generator: Optional["SummaryGeneratorInterface"] = None,
 ) -> Chunker:
     """
     Factory function to create a Chunker instance.
@@ -849,6 +948,7 @@ def create_chunker(
         max_tokens: Maximum tokens per chunk
         fixed_chunk_lines: Lines per fixed-size chunk
         overlap_lines: Overlap between fixed chunks
+        summary_generator: Generator for summary artifacts (optional)
 
     Returns:
         Configured Chunker instance
@@ -863,4 +963,5 @@ def create_chunker(
         max_tokens=max_tokens,
         fixed_chunk_lines=fixed_chunk_lines,
         overlap_lines=overlap_lines,
+        summary_generator=summary_generator,
     )

@@ -34,7 +34,8 @@ def test_token_limit_compliance_ast_chunks(func_data):
 
     assume(len(ast_nodes) > 0)
 
-    chunks = chunker.chunk(file, ast_nodes)
+    result = chunker.chunk(file, ast_nodes)
+    chunks = result.chunks
 
     for chunk in chunks:
         token_count = tokenizer.count_tokens(chunk.content)
@@ -65,7 +66,8 @@ def test_token_limit_compliance_fixed_chunks(text_data):
     )
 
     file = create_scanned_file(content, language="unknown", path="/test/file.txt")
-    chunks = chunker.chunk(file, [])
+    result = chunker.chunk(file, [])
+    chunks = result.chunks
 
     for chunk in chunks:
         token_count = tokenizer.count_tokens(chunk.content)
@@ -139,7 +141,8 @@ def test_metadata_completeness_methods(class_data):
     file = create_scanned_file(content)
     ast_nodes = parser.parse(content, "python")
 
-    chunks = chunker.chunk(file, ast_nodes)
+    result = chunker.chunk(file, ast_nodes)
+    chunks = result.chunks
 
     method_chunks = [c for c in chunks if c.chunk_type == "method"]
 
@@ -167,7 +170,8 @@ def test_metadata_completeness_functions(func_data):
 
     assume(len(ast_nodes) > 0)
 
-    chunks = chunker.chunk(file, ast_nodes)
+    result = chunker.chunk(file, ast_nodes)
+    chunks = result.chunks
 
     function_chunks = [c for c in chunks if c.chunk_type == "function"]
 
@@ -192,7 +196,8 @@ def test_metadata_includes_file_hash(func_data):
     file = create_scanned_file(content)
     ast_nodes = parser.parse(content, "python")
 
-    chunks = chunker.chunk(file, ast_nodes)
+    result = chunker.chunk(file, ast_nodes)
+    chunks = result.chunks
 
     for chunk in chunks:
         assert "file_hash" in chunk.metadata

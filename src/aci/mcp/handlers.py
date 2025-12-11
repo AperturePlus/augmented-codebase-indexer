@@ -95,6 +95,7 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
     file_filter = arguments.get("file_filter")
     use_rerank = arguments.get("use_rerank")
     mode = arguments.get("mode")
+    artifact_types = arguments.get("artifact_types")
 
     cfg, search_service, _, metadata_store, _ = get_initialized_services()
 
@@ -135,6 +136,17 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
         elif mode_lower == "hybrid":
             search_mode = SearchMode.HYBRID
 
+    # Validate artifact_types if provided
+    valid_artifact_types = {"chunk", "function_summary", "class_summary", "file_summary"}
+    if artifact_types:
+        invalid_types = [t for t in artifact_types if t not in valid_artifact_types]
+        if invalid_types:
+            return [TextContent(
+                type="text",
+                text=f"Error: Invalid artifact type(s): {', '.join(invalid_types)}. "
+                     f"Valid types: {', '.join(sorted(valid_artifact_types))}"
+            )]
+
     # Pass collection_name explicitly to avoid shared state mutation
     results = await search_service.search(
         query=query,
@@ -143,6 +155,7 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
         use_rerank=use_rerank,
         search_mode=search_mode,
         collection_name=collection_name,
+        artifact_types=artifact_types,
     )
 
     if not results:
@@ -158,6 +171,7 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
             "end_line": result.end_line,
             "score": round(result.score, 4),
             "language": result.metadata.get("language", "unknown"),
+            "artifact_type": result.metadata.get("artifact_type", "chunk"),
             "content": result.content,
         })
 

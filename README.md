@@ -143,6 +143,30 @@ Multiple exclusions can be combined:
 aci search "database query -path:tests -path:fixtures"
 ```
 
+## Artifact Type Filtering
+
+ACI indexes code at multiple granularity levels. You can filter search results by artifact type using the `--type` / `-t` option:
+
+| Artifact Type | Description |
+|---------------|-------------|
+| `chunk` | Code chunks (functions, classes, or fixed-size blocks) |
+| `function_summary` | Natural language summaries of functions |
+| `class_summary` | Natural language summaries of classes |
+| `file_summary` | File-level summaries describing overall purpose |
+
+```bash
+# Search only code chunks
+aci search "authentication" --type chunk
+
+# Search only summaries (high-level queries)
+aci search "what handles user login" --type function_summary --type class_summary
+
+# Combine multiple types
+aci search "config parsing" -t chunk -t file_summary
+```
+
+By default (no `--type` specified), search returns results from all artifact types.
+
 ## MCP Integration
 
 ACI supports the Model Context Protocol (MCP), allowing LLMs to directly interact with your codebase indexing and search capabilities.

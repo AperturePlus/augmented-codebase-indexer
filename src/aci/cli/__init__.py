@@ -217,6 +217,12 @@ def search(
     snippet_lines: int = typer.Option(
         3, "--snippet-lines", help="Number of lines to display when not verbose"
     ),
+    artifact_type: Optional[list[str]] = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by artifact type (chunk, function_summary, class_summary, file_summary). Can be specified multiple times.",
+    ),
 ):
     """Search the indexed codebase."""
     try:
@@ -282,6 +288,19 @@ def search(
             default_limit=actual_limit,
         )
 
+        # Validate artifact types if provided
+        valid_artifact_types = {"chunk", "function_summary", "class_summary", "file_summary"}
+        artifact_types_param = None
+        if artifact_type:
+            invalid_types = [t for t in artifact_type if t not in valid_artifact_types]
+            if invalid_types:
+                console.print(
+                    f"[bold red]Error:[/bold red] Invalid artifact type(s): {', '.join(invalid_types)}. "
+                    f"Valid types: {', '.join(sorted(valid_artifact_types))}"
+                )
+                raise typer.Exit(1)
+            artifact_types_param = artifact_type
+
         with console.status(f"[bold blue]Searching for[/bold blue] '{query}'..."):
             results = asyncio.run(
                 search_service.search(
@@ -290,6 +309,7 @@ def search(
                     file_filter=file_filter,  # User-provided filter only
                     use_rerank=use_rerank and reranker is not None,
                     collection_name=collection_name,  # Pass explicitly, no state mutation
+                    artifact_types=artifact_types_param,
                 )
             )
 
@@ -321,9 +341,13 @@ def search(
                 word_wrap=True,
             )
 
+            # Get artifact type for display
+            result_artifact_type = result.metadata.get("artifact_type", "chunk")
+            type_display = f" [{result_artifact_type}]" if result_artifact_type != "chunk" else ""
+
             panel = Panel(
                 syntax,
-                title=f"[bold blue]{i}. {result.file_path}[/bold blue] : {result.start_line}-{result.end_line}",
+                title=f"[bold blue]{i}. {result.file_path}[/bold blue]{type_display} : {result.start_line}-{result.end_line}",
                 subtitle=f"Score: [yellow]{result.score:.3f}[/yellow]",
                 border_style="blue",
                 expand=True,

@@ -48,7 +48,12 @@ class SearchOperations:
         self.context = context
         self._event_loop_manager = event_loop_manager
 
-    def run_search(self, query: str, limit: Optional[str] = None) -> None:
+    def run_search(
+        self,
+        query: str,
+        limit: Optional[str] = None,
+        artifact_types: Optional[list[str]] = None,
+    ) -> None:
         """
         Run the search command.
         
@@ -58,6 +63,7 @@ class SearchOperations:
         Args:
             query: Search query string.
             limit: Optional result limit as string.
+            artifact_types: Optional list of artifact types to filter by.
         """
         from aci.infrastructure import GrepSearcher
         from aci.services import SearchService
@@ -104,6 +110,7 @@ class SearchOperations:
                     limit=actual_limit,
                     use_rerank=self.services.reranker is not None,
                     collection_name=collection_name,  # Pass explicitly, no state mutation
+                    artifact_types=artifact_types,
                 )
                 if self._event_loop_manager:
                     results = self._event_loop_manager.run_async(search_coro)
@@ -145,9 +152,13 @@ class SearchOperations:
                 word_wrap=True,
             )
 
+            # Get artifact type for display
+            artifact_type = res.metadata.get("artifact_type", "chunk")
+            type_display = f" [{artifact_type}]" if artifact_type != "chunk" else ""
+
             panel = Panel(
                 syntax,
-                title=f"[bold blue]{i}. {res.file_path}[/bold blue] : {res.start_line}-{res.end_line}",
+                title=f"[bold blue]{i}. {res.file_path}[/bold blue]{type_display} : {res.start_line}-{res.end_line}",
                 subtitle=f"Score: [yellow]{res.score:.3f}[/yellow]",
                 border_style="blue",
                 expand=True,

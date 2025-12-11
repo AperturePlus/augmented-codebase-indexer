@@ -312,7 +312,11 @@ class REPLController:
         if command_name == "index":
             self._indexing_ops.run_index(data.get("path"))
         elif command_name == "search":
-            self._search_ops.run_search(data.get("query"), data.get("limit"))
+            self._search_ops.run_search(
+                data.get("query"),
+                data.get("limit"),
+                data.get("artifact_types"),
+            )
         elif command_name == "update":
             self._indexing_ops.run_update(data.get("path"))
         elif command_name == "reset":

@@ -112,6 +112,14 @@ class QdrantVectorStore(VectorStoreInterface):
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
                 logger.info("Created payload index for file_path")
+
+                # Create payload index for artifact_type filtering
+                await client.create_payload_index(
+                    collection_name=self._collection_name,
+                    field_name="artifact_type",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                logger.info("Created payload index for artifact_type")
             else:
                 # Validate existing collection vector size matches config
                 collection_info = await client.get_collection(self._collection_name)
@@ -138,6 +146,10 @@ class QdrantVectorStore(VectorStoreInterface):
         """Insert or update a vector with its payload."""
         await self.initialize()
         client = await self._get_client()
+
+        # Ensure artifact_type is set, default to "chunk" for backward compatibility
+        if "artifact_type" not in payload:
+            payload = {**payload, "artifact_type": "chunk"}
 
         try:
             await client.upsert(
@@ -167,8 +179,16 @@ class QdrantVectorStore(VectorStoreInterface):
         client = await self._get_client()
 
         try:
+            # Ensure artifact_type is set for each point, default to "chunk"
             qdrant_points = [
-                models.PointStruct(id=chunk_id, vector=vector, payload=payload)
+                models.PointStruct(
+                    id=chunk_id,
+                    vector=vector,
+                    payload=(
+                        payload if "artifact_type" in payload
+                        else {**payload, "artifact_type": "chunk"}
+                    ),
+                )
                 for chunk_id, vector, payload in points
             ]
             await client.upsert(
@@ -233,6 +253,7 @@ class QdrantVectorStore(VectorStoreInterface):
         limit: int = 10,
         file_filter: Optional[str] = None,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """
         Search for similar vectors.
@@ -244,6 +265,9 @@ class QdrantVectorStore(VectorStoreInterface):
             collection_name: Optional collection to search. If provided, searches
                 that collection without modifying instance state. If None, uses
                 the instance's default collection.
+            artifact_types: Optional list of artifact types to filter by
+                (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
+                If None, returns all artifact types.
 
         Returns:
             List of SearchResult sorted by score descending
@@ -259,18 +283,34 @@ class QdrantVectorStore(VectorStoreInterface):
             # Exact paths have no glob wildcards: *, ?, [
             is_exact_path = file_filter and not is_glob_pattern(file_filter)
 
-            # Build filter and determine fetch limit
-            search_filter = None
+            # Build filter conditions
+            filter_conditions = []
+            
+            # Add file path filter if exact path
             if is_exact_path:
-                # Server-side exact match filter - more efficient and complete
-                search_filter = models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="file_path",
-                            match=models.MatchValue(value=file_filter),
-                        )
-                    ]
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="file_path",
+                        match=models.MatchValue(value=file_filter),
+                    )
                 )
+            
+            # Add artifact type filter if specified
+            if artifact_types:
+                filter_conditions.append(
+                    models.FieldCondition(
+                        key="artifact_type",
+                        match=models.MatchAny(any=artifact_types),
+                    )
+                )
+            
+            # Build search filter from conditions
+            search_filter = None
+            if filter_conditions:
+                search_filter = models.Filter(must=filter_conditions)
+            
+            # Determine fetch limit
+            if is_exact_path:
                 fetch_limit = limit  # Exact match, no need to over-fetch
             elif file_filter:
                 # Glob pattern - need client-side filtering with larger fetch
@@ -314,6 +354,8 @@ class QdrantVectorStore(VectorStoreInterface):
                 if needs_client_filter and not fnmatch.fnmatch(file_path, file_filter):
                     continue
 
+                # Ensure artifact_type is included in metadata, default to "chunk"
+                artifact_type = payload.get("artifact_type", "chunk")
                 search_results.append(
                     SearchResult(
                         chunk_id=str(point.id),
@@ -323,9 +365,12 @@ class QdrantVectorStore(VectorStoreInterface):
                         content=payload.get("content", ""),
                         score=point.score,
                         metadata={
-                            k: v
-                            for k, v in payload.items()
-                            if k not in ("file_path", "start_line", "end_line", "content")
+                            **{
+                                k: v
+                                for k, v in payload.items()
+                                if k not in ("file_path", "start_line", "end_line", "content")
+                            },
+                            "artifact_type": artifact_type,
                         },
                     )
                 )
@@ -468,6 +513,8 @@ class QdrantVectorStore(VectorStoreInterface):
             point = results[0]
             payload = point.payload or {}
 
+            # Ensure artifact_type is included in metadata, default to "chunk"
+            artifact_type = payload.get("artifact_type", "chunk")
             return SearchResult(
                 chunk_id=str(point.id),
                 file_path=payload.get("file_path", ""),
@@ -476,9 +523,12 @@ class QdrantVectorStore(VectorStoreInterface):
                 content=payload.get("content", ""),
                 score=1.0,  # No score for direct retrieval
                 metadata={
-                    k: v
-                    for k, v in payload.items()
-                    if k not in ("file_path", "start_line", "end_line", "content")
+                    **{
+                        k: v
+                        for k, v in payload.items()
+                        if k not in ("file_path", "start_line", "end_line", "content")
+                    },
+                    "artifact_type": artifact_type,
                 },
             )
 

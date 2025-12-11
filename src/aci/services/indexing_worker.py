@@ -113,7 +113,7 @@ def process_file_worker(
             ast_nodes = parser.parse(content, language)
         
         # Chunk the file
-        chunks = chunker.chunk(scanned_file, ast_nodes)
+        chunking_result = chunker.chunk(scanned_file, ast_nodes)
         
         # Convert chunks to serializable dictionaries
         chunks_data = [
@@ -127,7 +127,7 @@ def process_file_worker(
                 "chunk_type": chunk.chunk_type,
                 "metadata": chunk.metadata,
             }
-            for chunk in chunks
+            for chunk in chunking_result.chunks
         ]
         
         line_count = content.count('\n') + 1

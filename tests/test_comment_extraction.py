@@ -166,7 +166,8 @@ func helper() {}
             content_hash="abc"
         )
         
-        chunks = self.chunker.chunk(scanned_file, ast_nodes)
+        result = self.chunker.chunk(scanned_file, ast_nodes)
+        chunks = result.chunks
         
         # Verify Chunks contain comments in CONTENT (not just metadata)
         process_chunk = next((c for c in chunks if c.metadata.get("function_name") == "processFile"), None)
@@ -212,7 +213,8 @@ func helper() {}
             modified_time=0,
             content_hash="xyz"
         )
-        chunks = self.chunker.chunk(scanned_file, ast_nodes)
+        result = self.chunker.chunk(scanned_file, ast_nodes)
+        chunks = result.chunks
         
         auth_chunk = next((c for c in chunks if c.metadata.get("function_name") == "AuthenticateUser"), None)
         self.assertIsNotNone(auth_chunk)
@@ -235,7 +237,8 @@ func helper() {}
         content = file_path.read_text(encoding="utf-8")
         ast_nodes = self.parser.parse(content, "javascript")
         scanned_file = ScannedFile(path=file_path, content=content, language="javascript", size_bytes=len(content), modified_time=0, content_hash="abc")
-        chunks = self.chunker.chunk(scanned_file, ast_nodes)
+        result = self.chunker.chunk(scanned_file, ast_nodes)
+        chunks = result.chunks
         
         process_chunk = next((c for c in chunks if c.metadata.get("function_name") == "processFile"), None)
         

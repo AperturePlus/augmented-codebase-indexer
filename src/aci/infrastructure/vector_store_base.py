@@ -61,6 +61,7 @@ class VectorStoreInterface(ABC):
         limit: int = 10,
         file_filter: Optional[str] = None,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """
         Search for similar vectors.
@@ -72,6 +73,9 @@ class VectorStoreInterface(ABC):
             collection_name: Optional collection to search. If provided, searches
                 that collection without modifying instance state. If None, uses
                 the instance's default collection.
+            artifact_types: Optional list of artifact types to filter by
+                (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
+                If None, returns all artifact types.
 
         Returns:
             List of SearchResult sorted by score descending

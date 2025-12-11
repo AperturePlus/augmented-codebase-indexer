@@ -97,16 +97,26 @@ def create_search_handler(services: "ServicesContainer") -> callable:
         if not command.args:
             return CommandResult(
                 success=False,
-                message="Usage: search <query> [--limit=N]\n\nSearch the indexed codebase.",
+                message="Usage: search <query> [--limit=N] [--type=TYPE]\n\nSearch the indexed codebase.\n"
+                "Types: chunk, function_summary, class_summary, file_summary",
             )
 
         query = " ".join(command.args)
         limit = command.kwargs.get("limit", command.kwargs.get("n"))
+        artifact_type = command.kwargs.get("type", command.kwargs.get("t"))
+        
+        # Parse artifact types (can be comma-separated or multiple --type flags)
+        artifact_types = None
+        if artifact_type:
+            if isinstance(artifact_type, list):
+                artifact_types = artifact_type
+            else:
+                artifact_types = [t.strip() for t in artifact_type.split(",")]
 
         return CommandResult(
             success=True,
             message=f"search:{query}",
-            data={"query": query, "limit": limit, "services": services},
+            data={"query": query, "limit": limit, "artifact_types": artifact_types, "services": services},
         )
 
     return handle_search
@@ -329,7 +339,7 @@ def register_all_commands(
         name="search",
         handler=create_search_handler(services),
         description="Search the indexed codebase",
-        usage="search <query> [--limit=N]",
+        usage="search <query> [--limit=N] [--type=TYPE]",
         arguments=[
             ArgumentInfo(
                 name="query",
@@ -341,6 +351,12 @@ def register_all_commands(
                 description="Maximum number of results",
                 required=False,
                 default=10,
+            ),
+            ArgumentInfo(
+                name="type",
+                description="Artifact type filter (chunk, function_summary, class_summary, file_summary)",
+                required=False,
+                default=None,
             ),
         ],
     )

@@ -41,6 +41,9 @@ class InMemoryVectorStore(VectorStoreInterface):
 
     async def upsert(self, chunk_id: str, vector: List[float], payload: dict) -> None:
         """Insert or update a vector with its payload."""
+        # Ensure artifact_type is set, default to "chunk" for backward compatibility
+        if "artifact_type" not in payload:
+            payload = {**payload, "artifact_type": "chunk"}
         self._vectors[chunk_id] = vector
         self._payloads[chunk_id] = payload
         # Also store in collection-based storage
@@ -75,6 +78,7 @@ class InMemoryVectorStore(VectorStoreInterface):
         limit: int = 10,
         file_filter: Optional[str] = None,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """
         Search for similar vectors using cosine similarity.
@@ -86,6 +90,9 @@ class InMemoryVectorStore(VectorStoreInterface):
             collection_name: Optional collection to search. If provided, searches
                 that collection without modifying instance state. If None, uses
                 the instance's default collection.
+            artifact_types: Optional list of artifact types to filter by
+                (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
+                If None, returns all artifact types.
 
         Returns:
             List of SearchResult sorted by score descending
@@ -104,10 +111,18 @@ class InMemoryVectorStore(VectorStoreInterface):
             # Apply file filter if specified
             if file_filter and not fnmatch.fnmatch(file_path, file_filter):
                 continue
+            
+            # Apply artifact type filter if specified
+            if artifact_types:
+                artifact_type = payload.get("artifact_type", "chunk")
+                if artifact_type not in artifact_types:
+                    continue
 
             # Calculate cosine similarity
             score = self._cosine_similarity(query_vector, vector)
 
+            # Ensure artifact_type is included in metadata, default to "chunk"
+            artifact_type = payload.get("artifact_type", "chunk")
             results.append(
                 SearchResult(
                     chunk_id=chunk_id,
@@ -117,9 +132,12 @@ class InMemoryVectorStore(VectorStoreInterface):
                     content=payload.get("content", ""),
                     score=score,
                     metadata={
-                        k: v
-                        for k, v in payload.items()
-                        if k not in ("file_path", "start_line", "end_line", "content")
+                        **{
+                            k: v
+                            for k, v in payload.items()
+                            if k not in ("file_path", "start_line", "end_line", "content")
+                        },
+                        "artifact_type": artifact_type,
                     },
                 )
             )
@@ -162,6 +180,8 @@ class InMemoryVectorStore(VectorStoreInterface):
             return None
 
         vector, payload = collection_data[chunk_id]
+        # Ensure artifact_type is included in metadata, default to "chunk"
+        artifact_type = payload.get("artifact_type", "chunk")
         return SearchResult(
             chunk_id=chunk_id,
             file_path=payload.get("file_path", ""),
@@ -170,9 +190,12 @@ class InMemoryVectorStore(VectorStoreInterface):
             content=payload.get("content", ""),
             score=1.0,
             metadata={
-                k: v
-                for k, v in payload.items()
-                if k not in ("file_path", "start_line", "end_line", "content")
+                **{
+                    k: v
+                    for k, v in payload.items()
+                    if k not in ("file_path", "start_line", "end_line", "content")
+                },
+                "artifact_type": artifact_type,
             },
         )
 

@@ -31,7 +31,7 @@ def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_code",
-            description="Search the indexed codebase using semantic search, keyword search, or both. Returns relevant code chunks with file paths and line numbers.",
+            description="Search the indexed codebase using semantic search, keyword search, or both. Returns relevant code chunks and summaries with file paths and line numbers. Supports filtering by artifact type to search at different granularity levels.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -61,6 +61,14 @@ def list_tools() -> list[Tool]:
                         "type": "string",
                         "enum": ["hybrid", "vector", "grep"],
                         "description": "Search mode: 'hybrid' (default) combines semantic and keyword search, 'vector' for semantic only, 'grep' for keyword only",
+                    },
+                    "artifact_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["chunk", "function_summary", "class_summary", "file_summary"],
+                        },
+                        "description": "Filter results by artifact type. Options: 'chunk' (code chunks), 'function_summary' (function descriptions), 'class_summary' (class descriptions), 'file_summary' (file overviews). If not specified, returns all types.",
                     },
                 },
                 "required": ["query", "path"],

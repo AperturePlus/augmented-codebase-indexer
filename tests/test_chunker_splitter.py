@@ -226,7 +226,8 @@ class TestChunkerWithSmartSplitter:
         ast_nodes = parser.parse(content, "python")
 
         chunker = Chunker(tokenizer=tokenizer, max_tokens=200)
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) > 1
 
@@ -248,7 +249,8 @@ class TestChunkerWithSmartSplitter:
 
         if method_nodes:
             chunker = Chunker(tokenizer=tokenizer, max_tokens=200)
-            chunks = chunker.chunk(file, method_nodes)
+            result = chunker.chunk(file, method_nodes)
+            chunks = result.chunks
 
             for chunk in chunks:
                 assert chunk.metadata.get("parent_class") == "BigClass"

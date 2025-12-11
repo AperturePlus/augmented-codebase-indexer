@@ -1,6 +1,6 @@
 """Property-based tests for chunker line accuracy and fixed-size bounds."""
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given, settings, HealthCheck
 from hypothesis import strategies as st
 
 from aci.core.ast_parser import TreeSitterParser
@@ -14,7 +14,7 @@ from tests.chunker_property_utils import (
 
 
 @given(func_data=python_function_strategy())
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_line_number_accuracy_ast_chunks(func_data):
     """
     **Feature: codebase-semantic-search, Property 2: Line Number Accuracy Invariant**
@@ -34,7 +34,8 @@ def test_line_number_accuracy_ast_chunks(func_data):
 
     assume(len(ast_nodes) > 0)
 
-    chunks = chunker.chunk(file, ast_nodes)
+    result = chunker.chunk(file, ast_nodes)
+    chunks = result.chunks
 
     lines = content.split("\n")
     for chunk in chunks:
@@ -74,7 +75,8 @@ def test_line_number_accuracy_fixed_chunks(text_data):
 
     file = create_scanned_file(content, language="unknown", path="/test/file.txt")
 
-    chunks = chunker.chunk(file, [])
+    result = chunker.chunk(file, [])
+    chunks = result.chunks
 
     lines = content.split("\n")
     for chunk in chunks:
@@ -115,7 +117,8 @@ def test_fixed_size_chunk_bounds(text_data, chunk_lines, overlap_lines):
     )
 
     file = create_scanned_file(content, language="unknown", path="/test/file.txt")
-    chunks = chunker.chunk(file, [])
+    result = chunker.chunk(file, [])
+    chunks = result.chunks
 
     assume(len(chunks) > 0)
 

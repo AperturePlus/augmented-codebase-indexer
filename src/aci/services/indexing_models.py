@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from aci.core.chunker import CodeChunk
+from aci.core.summary_artifact import SummaryArtifact
 
 
 @dataclass
@@ -32,6 +33,7 @@ class ProcessedFile:
     language: str
     line_count: int
     content_hash: str
+    summaries: List[SummaryArtifact] = field(default_factory=list)
     error: Optional[str] = None
 
 

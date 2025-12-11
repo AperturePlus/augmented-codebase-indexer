@@ -62,7 +62,8 @@ def test_chunker_formats_docstring_into_content(language: str, docstring: str, c
     )
     file = _scanned_file(code, language)
 
-    chunks = chunker.chunk(file, [node])
+    result = chunker.chunk(file, [node])
+    chunks = result.chunks
     assert len(chunks) == 1
 
     normalized = formatter.normalize(docstring, language)
@@ -91,7 +92,8 @@ def test_docstring_only_in_first_split_chunk():
     )
     file = _scanned_file(code, "javascript")
 
-    chunks = chunker.chunk(file, [node])
+    result = chunker.chunk(file, [node])
+    chunks = result.chunks
     assert len(chunks) > 1
 
     first, rest = chunks[0], chunks[1:]

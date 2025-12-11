@@ -185,7 +185,8 @@ def goodbye():
         file = self._create_scanned_file(content)
         ast_nodes = parser.parse(content, "python")
 
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) == 2
         assert all(isinstance(c, CodeChunk) for c in chunks)
@@ -207,7 +208,8 @@ def goodbye():
         file = self._create_scanned_file(content)
         ast_nodes = parser.parse(content, "python")
 
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) == 3
 
@@ -223,7 +225,8 @@ def goodbye():
         content = "line1\nline2\nline3\nline4\nline5\n" * 20
         file = self._create_scanned_file(content, language="unknown")
 
-        chunks = chunker.chunk(file, [])
+        result = chunker.chunk(file, [])
+        chunks = result.chunks
 
         assert len(chunks) >= 1
         assert all(c.chunk_type == "fixed" for c in chunks)
@@ -234,7 +237,8 @@ def goodbye():
         file = self._create_scanned_file(content)
         ast_nodes = parser.parse(content, "python")
 
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) == 1
         assert chunks[0].metadata.get("file_hash") == "test-hash"
@@ -250,7 +254,8 @@ def main():
         file = self._create_scanned_file(content)
         ast_nodes = parser.parse(content, "python")
 
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) == 1
         imports = chunks[0].metadata.get("imports", [])
@@ -277,7 +282,8 @@ def hello():
         file = self._create_scanned_file(content)
         ast_nodes = parser.parse(content, "python")
 
-        chunks = chunker.chunk(file, ast_nodes)
+        result = chunker.chunk(file, ast_nodes)
+        chunks = result.chunks
 
         assert len(chunks) == 1
         chunk = chunks[0]

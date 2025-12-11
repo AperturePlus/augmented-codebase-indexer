@@ -21,6 +21,7 @@ from aci.core.ast_parser import ASTParserInterface, TreeSitterParser
 from aci.core.chunker import Chunker, ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
+from aci.core.summary_artifact import ArtifactType, SummaryArtifact
 from aci.infrastructure.embedding_client import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
@@ -136,20 +137,25 @@ class IndexingService:
             result.duration_seconds = time.time() - start_time
             return result
 
-        # Process files in parallel and collect chunks
+        # Process files in parallel and collect chunks and summaries
         self._report_progress(0, total_files, "Processing files...")
         all_chunks: List[CodeChunk] = []
+        all_summaries: List[SummaryArtifact] = []
 
         if self._max_workers > 1 and total_files > 1:
-            all_chunks, result = await self._process_files_parallel(files, result, total_files)
+            all_chunks, all_summaries, result = await self._process_files_parallel(
+                files, result, total_files
+            )
         else:
-            all_chunks, result = await self._process_files_sequential(files, result, total_files)
+            all_chunks, all_summaries, result = await self._process_files_sequential(
+                files, result, total_files
+            )
 
         result.total_chunks = len(all_chunks)
 
-        # Generate embeddings and store
-        if all_chunks:
-            await self._embed_and_store_chunks(all_chunks)
+        # Generate embeddings and store chunks and summaries
+        if all_chunks or all_summaries:
+            await self._embed_and_store_chunks(all_chunks, all_summaries)
 
         result.duration_seconds = time.time() - start_time
         return result
@@ -159,15 +165,20 @@ class IndexingService:
         files: List[ScannedFile],
         result: IndexingResult,
         total_files: int,
-    ) -> Tuple[List[CodeChunk], IndexingResult]:
+    ) -> Tuple[List[CodeChunk], List[SummaryArtifact], IndexingResult]:
         """
         Process files in parallel using ProcessPoolExecutor.
         
         Uses ProcessPoolExecutor for true parallelism of CPU-bound tasks
         (parsing and chunking). Workers are initialized with shared
         parser/chunker instances to avoid overhead.
+        
+        Note: Parallel workers do not generate summaries. Summary generation
+        requires SummaryGenerator which is not available in worker processes.
+        For summary generation, use sequential processing (max_workers=1).
         """
         all_chunks: List[CodeChunk] = []
+        all_summaries: List[SummaryArtifact] = []  # Empty for parallel processing
         loop = asyncio.get_running_loop()
         
         try:
@@ -241,16 +252,17 @@ class IndexingService:
             )
             return await self._process_files_sequential(files, result, total_files)
 
-        return all_chunks, result
+        return all_chunks, all_summaries, result
 
     async def _process_files_sequential(
         self,
         files: List[ScannedFile],
         result: IndexingResult,
         total_files: int,
-    ) -> Tuple[List[CodeChunk], IndexingResult]:
+    ) -> Tuple[List[CodeChunk], List[SummaryArtifact], IndexingResult]:
         """Process files sequentially (fallback for single worker)."""
         all_chunks: List[CodeChunk] = []
+        all_summaries: List[SummaryArtifact] = []
 
         for i, scanned_file in enumerate(files):
             try:
@@ -259,6 +271,7 @@ class IndexingService:
                     result.failed_files.append(processed.file_path)
                 else:
                     all_chunks.extend(processed.chunks)
+                    all_summaries.extend(processed.summaries)
                     result.total_files += 1
 
                     for chunk in processed.chunks:
@@ -277,7 +290,7 @@ class IndexingService:
             if (i + 1) % 10 == 0 or i == total_files - 1:
                 self._report_progress(i + 1, total_files, f"Processed {i + 1} files")
 
-        return all_chunks, result
+        return all_chunks, all_summaries, result
 
     def _process_file(self, scanned_file: ScannedFile) -> ProcessedFile:
         """Process a single file: parse and chunk."""
@@ -286,12 +299,13 @@ class IndexingService:
             if self._ast_parser.supports_language(scanned_file.language):
                 ast_nodes = self._ast_parser.parse(scanned_file.content, scanned_file.language)
 
-            chunks = self._chunker.chunk(scanned_file, ast_nodes)
+            chunking_result = self._chunker.chunk(scanned_file, ast_nodes)
             line_count = scanned_file.content.count("\n") + 1
 
             return ProcessedFile(
                 file_path=str(scanned_file.path),
-                chunks=chunks,
+                chunks=chunking_result.chunks,
+                summaries=chunking_result.summaries,
                 language=scanned_file.language,
                 line_count=line_count,
                 content_hash=scanned_file.content_hash,
@@ -301,6 +315,7 @@ class IndexingService:
             return ProcessedFile(
                 file_path=str(scanned_file.path),
                 chunks=[],
+                summaries=[],
                 language=scanned_file.language,
                 line_count=0,
                 content_hash=scanned_file.content_hash,
@@ -308,20 +323,33 @@ class IndexingService:
             )
 
 
-    async def _embed_and_store_chunks(self, chunks: List[CodeChunk]) -> None:
+    async def _embed_and_store_chunks(
+        self,
+        chunks: List[CodeChunk],
+        summaries: Optional[List[SummaryArtifact]] = None,
+    ) -> None:
         """
-        Generate embeddings and store chunks in batches.
+        Generate embeddings and store chunks and summaries in batches.
         
         Writes metadata immediately after each batch succeeds to maintain
         consistency between Qdrant and SQLite if a later batch fails.
+        
+        Args:
+            chunks: List of code chunks to embed and store
+            summaries: Optional list of summary artifacts to embed and store
             
         Raises:
             IndexingError: If embedding API returns fewer vectors than expected
         """
+        summaries = summaries or []
         total_chunks = len(chunks)
+        total_summaries = len(summaries)
+        total_items = total_chunks + total_summaries
+        
         # Track files already persisted to avoid duplicate metadata writes
         persisted_files: set[str] = set()
 
+        # Process chunks first
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
             batch_index = i // self._batch_size
@@ -331,7 +359,7 @@ class IndexingService:
 
             if len(embeddings) != len(texts):
                 raise IndexingError(
-                    f"Embedding count mismatch in batch {batch_index}: "
+                    f"Embedding count mismatch in chunk batch {batch_index}: "
                     f"expected {len(texts)}, got {len(embeddings)}. "
                     f"This may indicate API rate limiting or content issues.",
                     batch_index=batch_index,
@@ -351,6 +379,7 @@ class IndexingService:
                     "content": chunk.content,
                     "language": chunk.language,
                     "chunk_type": chunk.chunk_type,
+                    "artifact_type": ArtifactType.CHUNK.value,
                     **chunk.metadata,
                 }
                 await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
@@ -376,9 +405,46 @@ class IndexingService:
 
             self._report_progress(
                 min(i + self._batch_size, total_chunks),
-                total_chunks,
+                total_items,
                 f"Embedded {min(i + self._batch_size, total_chunks)} chunks",
             )
+
+        # Process summaries
+        if summaries:
+            for i in range(0, total_summaries, self._batch_size):
+                batch = summaries[i : i + self._batch_size]
+                batch_index = i // self._batch_size
+
+                texts = [summary.content for summary in batch]
+                embeddings = await self._embedding_client.embed_batch(texts)
+
+                if len(embeddings) != len(texts):
+                    raise IndexingError(
+                        f"Embedding count mismatch in summary batch {batch_index}: "
+                        f"expected {len(texts)}, got {len(embeddings)}. "
+                        f"This may indicate API rate limiting or content issues.",
+                        batch_index=batch_index,
+                        expected=len(texts),
+                        actual=len(embeddings),
+                    )
+
+                for summary, embedding in zip(batch, embeddings):
+                    payload = {
+                        "file_path": summary.file_path,
+                        "start_line": summary.start_line,
+                        "end_line": summary.end_line,
+                        "content": summary.content,
+                        "artifact_type": summary.artifact_type.value,
+                        "name": summary.name,
+                        **summary.metadata,
+                    }
+                    await self._vector_store.upsert(summary.artifact_id, embedding, payload)
+
+                self._report_progress(
+                    total_chunks + min(i + self._batch_size, total_summaries),
+                    total_items,
+                    f"Embedded {min(i + self._batch_size, total_summaries)} summaries",
+                )
 
     async def update_incremental(self, root_path: Path) -> IndexingResult:
         """
@@ -442,39 +508,42 @@ class IndexingService:
 
         if modified_paths:
             self._report_progress(
-                0, len(modified_paths), "Removing old chunks for modified files..."
+                0, len(modified_paths), "Removing old artifacts for modified files..."
             )
             for i, path in enumerate(modified_paths):
+                # delete_by_file removes all artifacts (chunks and summaries) for the file
                 await self._vector_store.delete_by_file(path)
                 if (i + 1) % 10 == 0 or i == len(modified_paths) - 1:
                     self._report_progress(
-                        i + 1, len(modified_paths), f"Removed old chunks for {i + 1} modified files"
+                        i + 1, len(modified_paths), f"Removed old artifacts for {i + 1} modified files"
                     )
 
         files_to_process = [current_files[p] for p in (new_paths | modified_paths)]
         all_chunks: List[CodeChunk] = []
+        all_summaries: List[SummaryArtifact] = []
 
         if files_to_process:
             total_to_process = len(files_to_process)
             self._report_progress(0, total_to_process, "Processing new and modified files...")
 
             if self._max_workers > 1 and total_to_process > 1:
-                all_chunks, result = await self._process_files_parallel(
+                all_chunks, all_summaries, result = await self._process_files_parallel(
                     files_to_process, result, total_to_process
                 )
             else:
-                all_chunks, result = await self._process_files_sequential(
+                all_chunks, all_summaries, result = await self._process_files_sequential(
                     files_to_process, result, total_to_process
                 )
 
         result.total_chunks = len(all_chunks)
 
-        if all_chunks:
-            await self._embed_and_store_chunks(all_chunks)
+        if all_chunks or all_summaries:
+            await self._embed_and_store_chunks(all_chunks, all_summaries)
 
         result.duration_seconds = time.time() - start_time
         logger.info(
             f"Incremental update completed in {result.duration_seconds:.2f}s: "
-            f"{result.total_files} files, {result.total_chunks} chunks"
+            f"{result.total_files} files, {result.total_chunks} chunks, "
+            f"{len(all_summaries)} summaries"
         )
         return result

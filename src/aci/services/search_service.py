@@ -75,6 +75,7 @@ class SearchService:
         use_rerank: bool = True,
         search_mode: SearchMode = SearchMode.HYBRID,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """
         Perform semantic search.
@@ -90,6 +91,9 @@ class SearchService:
             use_rerank: Whether to use re-ranker if available
             search_mode: Search mode (HYBRID, VECTOR, or GREP)
             collection_name: Optional collection to search
+            artifact_types: Optional list of artifact types to filter by
+                (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
+                If None, returns all artifact types.
 
         Returns:
             List of SearchResult sorted by relevance
@@ -105,7 +109,7 @@ class SearchService:
 
         # Execute searches based on mode
         vector_results, grep_results = await self._dispatch_search(
-            search_query, effective_filter, search_mode, will_rerank, collection_name
+            search_query, effective_filter, search_mode, will_rerank, collection_name, artifact_types
         )
 
         # Merge and process results
@@ -124,15 +128,16 @@ class SearchService:
         search_mode: SearchMode,
         will_rerank: bool,
         collection_name: Optional[str],
+        artifact_types: Optional[List[str]] = None,
     ) -> tuple[List[SearchResult], List[SearchResult]]:
         """Dispatch search based on mode."""
         if search_mode == SearchMode.HYBRID:
             return await self._execute_hybrid_search(
-                query, file_filter, will_rerank, collection_name
+                query, file_filter, will_rerank, collection_name, artifact_types
             )
         elif search_mode == SearchMode.VECTOR:
             results = await self._execute_vector_search(
-                query, file_filter, will_rerank, collection_name
+                query, file_filter, will_rerank, collection_name, artifact_types
             )
             return results, []
         else:  # GREP
@@ -184,6 +189,7 @@ class SearchService:
         file_filter: Optional[str],
         use_rerank: bool = False,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Execute vector search and return results."""
         try:
@@ -200,6 +206,7 @@ class SearchService:
                 limit=fetch_limit,
                 file_filter=file_filter,
                 collection_name=collection_name,
+                artifact_types=artifact_types,
             )
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
@@ -233,10 +240,13 @@ class SearchService:
         file_filter: Optional[str],
         use_rerank: bool = False,
         collection_name: Optional[str] = None,
+        artifact_types: Optional[List[str]] = None,
     ) -> tuple[List[SearchResult], List[SearchResult]]:
         """Execute both vector and grep search in parallel."""
         try:
-            vector_task = self._execute_vector_search(query, file_filter, use_rerank, collection_name)
+            vector_task = self._execute_vector_search(
+                query, file_filter, use_rerank, collection_name, artifact_types
+            )
             grep_task = self._execute_grep_search(query, file_filter, collection_name)
 
             vector_results, grep_results = await asyncio.gather(
