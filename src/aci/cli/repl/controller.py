@@ -331,11 +331,23 @@ class REPLController:
         try:
             stats = self.services.metadata_store.get_stats()
 
+            # Get vector count from vector store
+            vector_count = 0
+            try:
+                vector_stats = self._event_loop_manager.run_async(
+                    self.services.vector_store.get_stats()
+                )
+                vector_count = vector_stats.get("total_vectors", 0)
+            except Exception:
+                pass  # Will show 0 if unavailable
+
+            # Per-collection statistics grid (Requirements 3.1, 3.2)
             grid = Table.grid(padding=1)
             grid.add_column(style="bold")
             grid.add_column()
 
-            grid.add_row("Total Files:", str(stats["total_files"]))
+            grid.add_row("File Count:", str(stats["total_files"]))
+            grid.add_row("Vector Count:", str(vector_count))
             grid.add_row("Total Chunks:", str(stats["total_chunks"]))
             grid.add_row("Total Lines:", str(stats["total_lines"]))
 
@@ -355,17 +367,44 @@ class REPLController:
                     Panel(lang_table, border_style="blue", expand=False)
                 )
 
+            # Staleness information (Requirements 3.3, 3.4)
+            try:
+                stale_files = self.services.metadata_store.get_stale_files(limit=5)
+                stale_count = len(self.services.metadata_store.get_stale_files())
+                
+                if stale_count > 0:
+                    self.console.print("\n[bold yellow]Stale Files:[/bold yellow]")
+                    self.console.print(f"  Total stale files: [yellow]{stale_count}[/yellow]")
+                    
+                    if stale_files:
+                        self.console.print("  Examples:")
+                        for file_path, staleness_seconds in stale_files:
+                            staleness_hours = staleness_seconds / 3600
+                            if staleness_hours >= 1:
+                                staleness_str = f"{staleness_hours:.1f}h"
+                            else:
+                                staleness_minutes = staleness_seconds / 60
+                                staleness_str = f"{staleness_minutes:.1f}m"
+                            self.console.print(f"    • {file_path} ({staleness_str} stale)")
+                else:
+                    self.console.print("\n[green]✓ All files are up to date[/green]")
+            except Exception:
+                pass  # Staleness info is optional
+
             # Health checks
             self.console.print("\n[bold]System Health:[/bold]")
 
-            try:
-                vector_stats = self._event_loop_manager.run_async(
-                    self.services.vector_store.get_stats()
-                )
-                count = vector_stats.get("total_vectors", 0)
-                self.console.print(f"  [green]✓[/green] Vector Store: Connected ({count} vectors)")
-            except Exception as e:
-                self.console.print(f"  [red]✗[/red] Vector Store: Error - {e}")
+            if vector_count > 0:
+                self.console.print(f"  [green]✓[/green] Vector Store: Connected ({vector_count} vectors)")
+            else:
+                try:
+                    # Re-check connection if count was 0
+                    self._event_loop_manager.run_async(
+                        self.services.vector_store.get_stats()
+                    )
+                    self.console.print(f"  [green]✓[/green] Vector Store: Connected ({vector_count} vectors)")
+                except Exception as e:
+                    self.console.print(f"  [red]✗[/red] Vector Store: Error - {e}")
 
             self.console.print(
                 f"  [green]✓[/green] Embedding API: "

@@ -53,6 +53,7 @@ class MockVectorStore:
         limit: int = 10,
         file_filter: str = None,
         collection_name: str = None,
+        artifact_types=None,
     ) -> list:
         self.search_called = True
         self.search_count += 1
@@ -338,7 +339,7 @@ class TestFileFilterApplication:
         received_filters = []
 
         class TrackingVectorStore(MockVectorStore):
-            async def search(self, query_vector, limit=10, file_filter=None, collection_name=None):
+            async def search(self, query_vector, limit=10, file_filter=None, collection_name=None, artifact_types=None):
                 received_filters.append(("vector", file_filter))
                 return []
 

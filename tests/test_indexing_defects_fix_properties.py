@@ -94,6 +94,7 @@ class TrackingMetadataStore:
     def __init__(self):
         self.written_files: List[str] = []
         self.write_count = 0
+        self.pending_batches: list[str] = []
 
     def upsert_file(self, file_info):
         self.written_files.append(file_info.file_path)
@@ -107,6 +108,17 @@ class TrackingMetadataStore:
 
     def delete_file(self, file_path: str):
         pass
+
+    def create_pending_batch(self, batch_id: str, file_paths: list[str], chunk_ids: list[str]):
+        self.pending_batches.append(batch_id)
+
+    def complete_pending_batch(self, batch_id: str):
+        if batch_id in self.pending_batches:
+            self.pending_batches.remove(batch_id)
+
+    def rollback_pending_batch(self, batch_id: str):
+        if batch_id in self.pending_batches:
+            self.pending_batches.remove(batch_id)
 
     def close(self):
         pass

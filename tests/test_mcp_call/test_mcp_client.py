@@ -9,6 +9,11 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
+# Integration-style script; skip during normal automated test runs.
+pytestmark = pytest.mark.skip(reason="Manual MCP client exercise; requires running MCP server")
+
 # 直接导入 MCP handlers 进行测试（绕过 stdio）
 from aci.mcp.tools import list_tools
 from aci.mcp.handlers import call_tool

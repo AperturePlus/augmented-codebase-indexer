@@ -4,6 +4,7 @@ Index Metadata Store for Project ACI.
 SQLite-based storage for index metadata, file tracking, and statistics.
 """
 
+import json
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -11,34 +12,29 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .metadata_queries import MetadataQueryExecutor, _now_with_tz
+from .metadata_schema import initialize_schema, migrate_schema
+
 logger = logging.getLogger(__name__)
-
-
-def _now_with_tz() -> datetime:
-    """Get current datetime with local timezone (default UTC+8)."""
-    from datetime import timezone as tz
-    # Try to get local timezone, fallback to UTC+8
-    try:
-        return datetime.now().astimezone()
-    except Exception:
-        return datetime.now(tz(timedelta(hours=8)))
-
-
-def _now_str() -> str:
-    """Get current datetime as ISO string for SQLite."""
-    return _now_with_tz().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class MetadataStoreError(Exception):
     """Base exception for metadata store errors."""
-
     pass
+
+
+@dataclass
+class PendingBatch:
+    """Information about a pending batch operation."""
+    batch_id: str
+    file_paths: List[str]
+    chunk_ids: List[str]
+    created_at: datetime
 
 
 @dataclass
 class IndexedFileInfo:
     """Information about an indexed file."""
-
     file_path: str
     content_hash: str
     language: str
@@ -56,129 +52,52 @@ class IndexMetadataStore:
     incremental update support.
     """
 
-    # SQL schema for the database
-    _SCHEMA = """
-    -- Index metadata
-    CREATE TABLE IF NOT EXISTS index_info (
-        index_id TEXT PRIMARY KEY,
-        root_path TEXT NOT NULL,
-        collection_name TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Indexed files tracking
-    CREATE TABLE IF NOT EXISTS indexed_files (
-        file_path TEXT PRIMARY KEY,
-        content_hash TEXT NOT NULL,
-        language TEXT NOT NULL,
-        line_count INTEGER NOT NULL,
-        chunk_count INTEGER NOT NULL,
-        indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        modified_time REAL NOT NULL
-    );
-
-    -- Statistics cache
-    CREATE TABLE IF NOT EXISTS index_stats (
-        stat_key TEXT PRIMARY KEY,
-        stat_value TEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Indexes for efficient queries
-    CREATE INDEX IF NOT EXISTS idx_files_indexed_at 
-        ON indexed_files(indexed_at);
-    CREATE INDEX IF NOT EXISTS idx_files_modified 
-        ON indexed_files(modified_time);
-    CREATE INDEX IF NOT EXISTS idx_files_language 
-        ON indexed_files(language);
-    """
-
     def __init__(self, db_path: Path | str):
-        """
-        Initialize the metadata store.
-
-        Args:
-            db_path: Path to the SQLite database file
-        """
         self._db_path = Path(db_path)
         self._conn: Optional[sqlite3.Connection] = None
+        self._query: Optional[MetadataQueryExecutor] = None
         self._initialized = False
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection."""
         if self._conn is None:
-            # Ensure parent directory exists
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Don't use PARSE_DECLTYPES to avoid timestamp conversion issues
-            # We handle datetime conversion manually
             self._conn = sqlite3.connect(str(self._db_path))
             self._conn.row_factory = sqlite3.Row
-
-            # Enable WAL mode for better concurrency
             self._conn.execute("PRAGMA journal_mode=WAL;")
-            # Increase busy timeout to wait for locks (5000ms)
             self._conn.execute("PRAGMA busy_timeout=5000;")
-
+            self._query = MetadataQueryExecutor(self._conn)
         return self._conn
 
     def initialize(self) -> None:
         """Initialize the database schema."""
         if self._initialized:
             return
-
         conn = self._get_connection()
         try:
-            conn.executescript(self._SCHEMA)
-            conn.commit()
-            
-            # Run migrations for existing databases
-            self._migrate_schema(conn)
-            
+            initialize_schema(conn)
+            migrate_schema(conn)
             self._initialized = True
             logger.info(f"Initialized metadata store: {self._db_path}")
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to initialize schema: {e}") from e
 
-    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        """
-        Run schema migrations for existing databases.
-        
-        Adds new columns that may be missing from older database versions.
-        """
-        try:
-            # Check if collection_name column exists in index_info
-            cursor = conn.execute("PRAGMA table_info(index_info)")
-            columns = {row[1] for row in cursor.fetchall()}
-            
-            if "collection_name" not in columns:
-                logger.info("Migrating database: adding collection_name column to index_info")
-                conn.execute("ALTER TABLE index_info ADD COLUMN collection_name TEXT")
-                conn.commit()
-        except sqlite3.Error as e:
-            logger.warning(f"Schema migration warning: {e}")
+    def _ensure_query(self) -> MetadataQueryExecutor:
+        """Ensure query executor is available."""
+        self.initialize()
+        assert self._query is not None
+        return self._query
+
+    # ─────────────────────────────────────────────────────────────────
+    # File Operations
+    # ─────────────────────────────────────────────────────────────────
 
     def get_file_info(self, file_path: str) -> Optional[IndexedFileInfo]:
         """Get information about an indexed file."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            cursor = conn.execute(
-                """
-                SELECT file_path, content_hash, language, line_count, 
-                       chunk_count, indexed_at, modified_time
-                FROM indexed_files
-                WHERE file_path = ?
-                """,
-                (file_path,),
-            )
-            row = cursor.fetchone()
-
+            row = self._ensure_query().get_file(file_path)
             if row is None:
                 return None
-
             return IndexedFileInfo(
                 file_path=row["file_path"],
                 content_hash=row["content_hash"],
@@ -188,182 +107,63 @@ class IndexMetadataStore:
                 indexed_at=datetime.fromisoformat(row["indexed_at"]),
                 modified_time=row["modified_time"],
             )
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get file info: {e}") from e
 
     def upsert_file(self, info: IndexedFileInfo) -> None:
         """Insert or update file index information."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            conn.execute(
-                """
-                INSERT INTO indexed_files 
-                    (file_path, content_hash, language, line_count, 
-                     chunk_count, indexed_at, modified_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(file_path) DO UPDATE SET
-                    content_hash = excluded.content_hash,
-                    language = excluded.language,
-                    line_count = excluded.line_count,
-                    chunk_count = excluded.chunk_count,
-                    indexed_at = excluded.indexed_at,
-                    modified_time = excluded.modified_time
-                """,
-                (
-                    info.file_path,
-                    info.content_hash,
-                    info.language,
-                    info.line_count,
-                    info.chunk_count,
-                    info.indexed_at.isoformat(),
-                    info.modified_time,
-                ),
+            self._ensure_query().upsert_file(
+                info.file_path, info.content_hash, info.language,
+                info.line_count, info.chunk_count,
+                info.indexed_at.isoformat(), info.modified_time,
             )
-            conn.commit()
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to upsert file: {e}") from e
 
     def upsert_files_batch(self, files: List[IndexedFileInfo]) -> None:
         """Batch insert or update file index information."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            conn.executemany(
-                """
-                INSERT INTO indexed_files 
-                    (file_path, content_hash, language, line_count, 
-                     chunk_count, indexed_at, modified_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(file_path) DO UPDATE SET
-                    content_hash = excluded.content_hash,
-                    language = excluded.language,
-                    line_count = excluded.line_count,
-                    chunk_count = excluded.chunk_count,
-                    indexed_at = excluded.indexed_at,
-                    modified_time = excluded.modified_time
-                """,
-                [
-                    (
-                        f.file_path,
-                        f.content_hash,
-                        f.language,
-                        f.line_count,
-                        f.chunk_count,
-                        f.indexed_at.isoformat(),
-                        f.modified_time,
-                    )
-                    for f in files
-                ],
-            )
-            conn.commit()
-
+            self._ensure_query().upsert_files_batch([
+                (f.file_path, f.content_hash, f.language, f.line_count,
+                 f.chunk_count, f.indexed_at.isoformat(), f.modified_time)
+                for f in files
+            ])
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to batch upsert files: {e}") from e
 
     def delete_file(self, file_path: str) -> bool:
-        """
-        Delete file index information.
-
-        Returns:
-            True if file was deleted, False if not found
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+        """Delete file index information. Returns True if deleted."""
         try:
-            cursor = conn.execute(
-                "DELETE FROM indexed_files WHERE file_path = ?",
-                (file_path,),
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-
+            return self._ensure_query().delete_file(file_path) > 0
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to delete file: {e}") from e
 
     def delete_files_batch(self, file_paths: List[str]) -> int:
-        """
-        Batch delete file index information.
-
-        Returns:
-            Number of files deleted
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+        """Batch delete file index information. Returns count deleted."""
         try:
-            cursor = conn.executemany(
-                "DELETE FROM indexed_files WHERE file_path = ?",
-                [(fp,) for fp in file_paths],
-            )
-            conn.commit()
-            return cursor.rowcount
-
+            return self._ensure_query().delete_files_batch(file_paths)
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to batch delete files: {e}") from e
 
     def get_files_older_than(self, days: int) -> List[str]:
-        """
-        Get files indexed more than N days ago.
-
-        Args:
-            days: Number of days threshold
-
-        Returns:
-            List of file paths
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+        """Get files indexed more than N days ago."""
         try:
             cutoff = _now_with_tz() - timedelta(days=days)
-            cursor = conn.execute(
-                """
-                SELECT file_path FROM indexed_files
-                WHERE indexed_at < ?
-                """,
-                (cutoff.isoformat(),),
-            )
-            return [row["file_path"] for row in cursor.fetchall()]
-
+            return self._ensure_query().get_files_older_than(cutoff.isoformat())
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to query old files: {e}") from e
 
     def get_all_file_hashes(self) -> Dict[str, str]:
-        """
-        Get all file paths and their content hashes.
-
-        Returns:
-            Dict mapping file_path to content_hash
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+        """Get all file paths and their content hashes."""
         try:
-            cursor = conn.execute("SELECT file_path, content_hash FROM indexed_files")
-            return {row["file_path"]: row["content_hash"] for row in cursor.fetchall()}
-
+            return self._ensure_query().get_all_file_hashes()
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get file hashes: {e}") from e
 
     def get_all_files(self) -> List[IndexedFileInfo]:
         """Get all indexed files."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            cursor = conn.execute(
-                """
-                SELECT file_path, content_hash, language, line_count, 
-                       chunk_count, indexed_at, modified_time
-                FROM indexed_files
-                """
-            )
             return [
                 IndexedFileInfo(
                     file_path=row["file_path"],
@@ -374,110 +174,65 @@ class IndexMetadataStore:
                     indexed_at=datetime.fromisoformat(row["indexed_at"]),
                     modified_time=row["modified_time"],
                 )
-                for row in cursor.fetchall()
+                for row in self._ensure_query().get_all_files()
             ]
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get all files: {e}") from e
 
-    def get_stats(self) -> Dict:
-        """
-        Get index statistics.
-
-        Returns:
-            Dict with total_files, total_chunks, total_lines, languages
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+    def get_stale_files(self, limit: Optional[int] = None) -> List[tuple[str, float]]:
+        """Get files where modified_time exceeds indexed_at (stale files)."""
         try:
-            # Get aggregate stats
-            cursor = conn.execute(
-                """
-                SELECT 
-                    COUNT(*) as total_files,
-                    COALESCE(SUM(chunk_count), 0) as total_chunks,
-                    COALESCE(SUM(line_count), 0) as total_lines
-                FROM indexed_files
-                """
-            )
-            row = cursor.fetchone()
+            raw_data = self._ensure_query().get_stale_files_raw()
+            stale_files = []
+            for file_path, modified_time, indexed_at_str in raw_data:
+                indexed_at_ts = datetime.fromisoformat(indexed_at_str).timestamp()
+                staleness = modified_time - indexed_at_ts
+                if staleness > 0:
+                    stale_files.append((file_path, staleness))
+            stale_files.sort(key=lambda x: x[1], reverse=True)
+            return stale_files[:limit] if limit else stale_files
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to get stale files: {e}") from e
 
-            # Get language breakdown
-            cursor = conn.execute(
-                """
-                SELECT language, COUNT(*) as count
-                FROM indexed_files
-                GROUP BY language
-                """
-            )
-            languages = {r["language"]: r["count"] for r in cursor.fetchall()}
+    # ─────────────────────────────────────────────────────────────────
+    # Statistics
+    # ─────────────────────────────────────────────────────────────────
 
+    def get_stats(self) -> Dict:
+        """Get index statistics."""
+        try:
+            query = self._ensure_query()
+            row = query.get_aggregate_stats()
+            languages = query.get_language_breakdown()
             return {
                 "total_files": row["total_files"],
                 "total_chunks": row["total_chunks"],
                 "total_lines": row["total_lines"],
                 "languages": languages,
             }
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get stats: {e}") from e
+
+    # ─────────────────────────────────────────────────────────────────
+    # Index Info / Repository Operations
+    # ─────────────────────────────────────────────────────────────────
 
     def set_index_info(
         self, index_id: str, root_path: str, collection_name: Optional[str] = None
     ) -> None:
         """Set or update index metadata."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            now = _now_str()
-            conn.execute(
-                """
-                INSERT INTO index_info (index_id, root_path, collection_name, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(index_id) DO UPDATE SET
-                    root_path = excluded.root_path,
-                    collection_name = COALESCE(excluded.collection_name, collection_name),
-                    updated_at = ?
-                """,
-                (index_id, root_path, collection_name, now, now, now),
-            )
-            conn.commit()
-
+            self._ensure_query().upsert_index_info(index_id, root_path, collection_name)
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to set index info: {e}") from e
 
     def register_repository(self, root_path: str, collection_name: Optional[str] = None) -> None:
-        """
-        Register or update a repository root path.
-        
-        Uses the root_path itself as the unique index_id.
-        
-        Args:
-            root_path: Absolute path to the repository root.
-            collection_name: Optional Qdrant collection name for this repository.
-        """
+        """Register or update a repository root path."""
         self.set_index_info(index_id=root_path, root_path=root_path, collection_name=collection_name)
 
     def get_repositories(self) -> List[Dict]:
-        """
-        Get all registered repositories.
-        
-        Returns:
-            List of dicts with keys: root_path, collection_name, created_at, updated_at
-        """
-        self.initialize()
-        conn = self._get_connection()
-
+        """Get all registered repositories."""
         try:
-            cursor = conn.execute(
-                """
-                SELECT root_path, collection_name, created_at, updated_at
-                FROM index_info
-                ORDER BY updated_at DESC
-                """
-            )
             return [
                 {
                     "root_path": row["root_path"],
@@ -485,31 +240,17 @@ class IndexMetadataStore:
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
-                for row in cursor.fetchall()
+                for row in self._ensure_query().get_all_repositories()
             ]
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get repositories: {e}") from e
 
     def get_index_info(self, index_id: str) -> Optional[Dict]:
         """Get index metadata."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            cursor = conn.execute(
-                """
-                SELECT index_id, root_path, collection_name, created_at, updated_at
-                FROM index_info
-                WHERE index_id = ?
-                """,
-                (index_id,),
-            )
-            row = cursor.fetchone()
-
+            row = self._ensure_query().get_index_info(index_id)
             if row is None:
                 return None
-
             return {
                 "index_id": row["index_id"],
                 "root_path": row["root_path"],
@@ -517,36 +258,78 @@ class IndexMetadataStore:
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
-
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get index info: {e}") from e
-    
+
     def get_collection_name(self, root_path: str) -> Optional[str]:
-        """
-        Get the collection name for a repository.
-        
-        Args:
-            root_path: Absolute path to the repository root.
-            
-        Returns:
-            Collection name if found, None otherwise.
-        """
+        """Get the collection name for a repository."""
         info = self.get_index_info(root_path)
-        if info:
-            return info.get("collection_name")
-        return None
+        return info.get("collection_name") if info else None
+
+    # ─────────────────────────────────────────────────────────────────
+    # Pending Batch Operations
+    # ─────────────────────────────────────────────────────────────────
+
+    def create_pending_batch(
+        self, batch_id: str, file_paths: List[str], chunk_ids: List[str]
+    ) -> None:
+        """Create a pending batch marker before writing to stores."""
+        try:
+            self._ensure_query().create_pending_batch(
+                batch_id, json.dumps(file_paths), json.dumps(chunk_ids)
+            )
+            logger.debug(f"Created pending batch: {batch_id}")
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to create pending batch: {e}") from e
+
+    def complete_pending_batch(self, batch_id: str) -> bool:
+        """Mark a batch as complete. Returns True if found and deleted."""
+        try:
+            deleted = self._ensure_query().delete_pending_batch(batch_id) > 0
+            if deleted:
+                logger.debug(f"Completed pending batch: {batch_id}")
+            return deleted
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to complete pending batch: {e}") from e
+
+    def get_pending_batches(self) -> List[PendingBatch]:
+        """Get all pending batches."""
+        try:
+            return [
+                PendingBatch(
+                    batch_id=row["batch_id"],
+                    file_paths=json.loads(row["file_paths"]),
+                    chunk_ids=json.loads(row["chunk_ids"]),
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                for row in self._ensure_query().get_all_pending_batches()
+            ]
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to get pending batches: {e}") from e
+
+    def rollback_pending_batch(self, batch_id: str) -> bool:
+        """Rollback a pending batch. Returns True if found and rolled back."""
+        try:
+            query = self._ensure_query()
+            row = query.get_pending_batch(batch_id)
+            if row is None:
+                return False
+            file_paths = json.loads(row["file_paths"])
+            query.delete_files_in_list(file_paths)
+            query.delete_pending_batch(batch_id)
+            logger.info(f"Rolled back pending batch {batch_id}: removed {len(file_paths)} file entries")
+            return True
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to rollback pending batch: {e}") from e
+
+    # ─────────────────────────────────────────────────────────────────
+    # Lifecycle
+    # ─────────────────────────────────────────────────────────────────
 
     def clear_all(self) -> None:
         """Clear all data from the store."""
-        self.initialize()
-        conn = self._get_connection()
-
         try:
-            conn.execute("DELETE FROM indexed_files")
-            conn.execute("DELETE FROM index_info")
-            conn.execute("DELETE FROM index_stats")
-            conn.commit()
-
+            self._ensure_query().clear_all()
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to clear data: {e}") from e
 
@@ -555,17 +338,10 @@ class IndexMetadataStore:
         if self._conn:
             self._conn.close()
             self._conn = None
+            self._query = None
             self._initialized = False
 
 
 def create_metadata_store(db_path: Path | str) -> IndexMetadataStore:
-    """
-    Factory function to create a metadata store.
-
-    Args:
-        db_path: Path to the SQLite database file
-
-    Returns:
-        Configured IndexMetadataStore instance
-    """
+    """Factory function to create a metadata store."""
     return IndexMetadataStore(db_path)

@@ -12,6 +12,7 @@ operations (AST parsing, chunking) and async for IO-intensive operations
 import asyncio
 import logging
 import time
+import uuid
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStor
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
 from aci.services.indexing_worker import ChunkerConfig, init_worker, process_file_worker
+from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ class IndexingService:
         batch_size: int = 32,
         max_workers: int = 4,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
         """
         Initialize the indexing service.
@@ -64,6 +67,7 @@ class IndexingService:
             batch_size: Number of chunks to embed at once
             max_workers: Number of parallel workers for file processing
             progress_callback: Optional callback(current, total, message)
+            metrics_collector: Optional collector for indexing metrics
         """
         self._embedding_client = embedding_client
         self._vector_store = vector_store
@@ -74,9 +78,13 @@ class IndexingService:
         self._batch_size = batch_size
         self._max_workers = max_workers
         self._progress_callback = progress_callback
+        self._metrics_collector = metrics_collector
         
         # Extract chunker config for parallel workers
         self._chunker_config = self._extract_chunker_config(self._chunker)
+        
+        # Check for pending batches from previous runs
+        self._check_pending_batches_on_startup()
 
     def _extract_chunker_config(self, chunker: ChunkerInterface) -> ChunkerConfig:
         """Extract configuration from chunker for parallel workers."""
@@ -88,6 +96,65 @@ class IndexingService:
             )
         # Default config for custom chunker implementations
         return ChunkerConfig()
+
+    def _check_pending_batches_on_startup(self) -> None:
+        """Check for pending batches from previous runs and log warning if any exist."""
+        try:
+            pending_batches = self._metadata_store.get_pending_batches()
+            if pending_batches:
+                batch_ids = [batch.batch_id for batch in pending_batches]
+                logger.warning(
+                    "Detected incomplete pending batches from previous runs",
+                    extra={
+                        "pending_batch_count": len(pending_batches),
+                        "batch_ids": batch_ids,
+                    },
+                )
+                logger.warning(
+                    f"Found {len(pending_batches)} pending batch(es) that may indicate "
+                    f"incomplete indexing operations. Use cleanup_pending_batches() to "
+                    f"clean up these batches."
+                )
+        except Exception as e:
+            logger.debug(f"Could not check pending batches on startup: {e}")
+
+    def cleanup_pending_batches(self) -> int:
+        """
+        Clean up all pending batches from previous failed runs.
+        
+        This method should be called manually to recover from incomplete
+        indexing operations. It rolls back each pending batch, removing
+        any associated file metadata.
+        
+        Returns:
+            Number of batches cleaned up
+        """
+        pending_batches = self._metadata_store.get_pending_batches()
+        cleaned_count = 0
+        
+        for batch in pending_batches:
+            logger.info(
+                f"Cleaning up pending batch: {batch.batch_id}",
+                extra={
+                    "batch_id": batch.batch_id,
+                    "file_count": len(batch.file_paths),
+                    "chunk_count": len(batch.chunk_ids),
+                    "created_at": batch.created_at.isoformat(),
+                },
+            )
+            if self._metadata_store.rollback_pending_batch(batch.batch_id):
+                cleaned_count += 1
+                logger.info(f"Successfully cleaned up batch: {batch.batch_id}")
+            else:
+                logger.warning(f"Failed to clean up batch: {batch.batch_id}")
+        
+        if cleaned_count > 0:
+            logger.info(
+                f"Cleaned up {cleaned_count} pending batch(es)",
+                extra={"cleaned_count": cleaned_count},
+            )
+        
+        return cleaned_count
 
     def _report_progress(self, current: int, total: int, message: str) -> None:
         """Report progress if callback is set."""
@@ -158,6 +225,23 @@ class IndexingService:
             await self._embed_and_store_chunks(all_chunks, all_summaries)
 
         result.duration_seconds = time.time() - start_time
+        
+        # Log indexing summary with structured fields
+        logger.info(
+            "Indexing completed",
+            extra={
+                "total_chunks": result.total_chunks,
+                "total_files": result.total_files,
+                "duration_seconds": result.duration_seconds,
+            },
+        )
+        
+        # Record metrics if collector is available
+        if self._metrics_collector:
+            self._metrics_collector.record_indexing_complete(
+                result.total_chunks, result.total_files, result.duration_seconds
+            )
+        
         return result
 
     async def _process_files_parallel(
@@ -331,8 +415,8 @@ class IndexingService:
         """
         Generate embeddings and store chunks and summaries in batches.
         
-        Writes metadata immediately after each batch succeeds to maintain
-        consistency between Qdrant and SQLite if a later batch fails.
+        Uses pending batch tracking to maintain consistency between Qdrant
+        and SQLite. If a batch fails, the pending batch is rolled back.
         
         Args:
             chunks: List of code chunks to embed and store
@@ -353,55 +437,119 @@ class IndexingService:
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
             batch_index = i // self._batch_size
-
-            texts = [chunk.content for chunk in batch]
-            embeddings = await self._embedding_client.embed_batch(texts)
-
-            if len(embeddings) != len(texts):
-                raise IndexingError(
-                    f"Embedding count mismatch in chunk batch {batch_index}: "
-                    f"expected {len(texts)}, got {len(embeddings)}. "
-                    f"This may indicate API rate limiting or content issues.",
-                    batch_index=batch_index,
-                    expected=len(texts),
-                    actual=len(embeddings),
+            
+            # Generate batch_id for pending batch tracking
+            batch_id = f"batch_{uuid.uuid4().hex[:12]}"
+            
+            # Collect file paths and chunk IDs for this batch
+            batch_file_paths = list({
+                chunk.metadata.get("_pending_file_info", {}).get("file_path", chunk.file_path)
+                for chunk in batch
+            })
+            batch_chunk_ids = [chunk.chunk_id for chunk in batch]
+            
+            # Create pending batch marker before any writes
+            self._metadata_store.create_pending_batch(
+                batch_id, batch_file_paths, batch_chunk_ids
+            )
+            
+            try:
+                texts = [chunk.content for chunk in batch]
+                
+                # Time embedding API call
+                embed_start = time.time()
+                embeddings = await self._embedding_client.embed_batch(texts)
+                embed_latency_ms = (time.time() - embed_start) * 1000
+                
+                # Log embedding latency with structured fields
+                logger.info(
+                    "Embedding batch completed",
+                    extra={
+                        "latency_ms": embed_latency_ms,
+                        "batch_index": batch_index,
+                        "chunk_count": len(texts),
+                    },
                 )
-
-            # Collect file info from this batch before writing vectors
-            batch_file_infos: dict[str, dict] = {}
-            for chunk, embedding in zip(batch, embeddings):
-                pending_info = chunk.metadata.pop("_pending_file_info", None)
                 
-                payload = {
-                    "file_path": chunk.file_path,
-                    "start_line": chunk.start_line,
-                    "end_line": chunk.end_line,
-                    "content": chunk.content,
-                    "language": chunk.language,
-                    "chunk_type": chunk.chunk_type,
-                    "artifact_type": ArtifactType.CHUNK.value,
-                    **chunk.metadata,
-                }
-                await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
-                
-                file_path = pending_info["file_path"] if pending_info else None
-                if file_path and file_path not in persisted_files:
-                    batch_file_infos[file_path] = pending_info
+                # Record metrics if collector is available
+                if self._metrics_collector:
+                    self._metrics_collector.record_embedding_latency(embed_latency_ms)
 
-            # Write metadata for this batch immediately after vectors succeed
-            for file_path, info in batch_file_infos.items():
-                self._metadata_store.upsert_file(
-                    IndexedFileInfo(
-                        file_path=info["file_path"],
-                        content_hash=info["content_hash"],
-                        language=info["language"],
-                        line_count=info["line_count"],
-                        chunk_count=info["chunk_count"],
-                        indexed_at=datetime.now().astimezone(),
-                        modified_time=info["modified_time"],
+                if len(embeddings) != len(texts):
+                    raise IndexingError(
+                        f"Embedding count mismatch in chunk batch {batch_index}: "
+                        f"expected {len(texts)}, got {len(embeddings)}. "
+                        f"This may indicate API rate limiting or content issues.",
+                        batch_index=batch_index,
+                        expected=len(texts),
+                        actual=len(embeddings),
                     )
+
+                # Collect file info from this batch before writing vectors
+                batch_file_infos: dict[str, dict] = {}
+                
+                # Time Qdrant upsert operations
+                qdrant_start = time.time()
+                for chunk, embedding in zip(batch, embeddings):
+                    pending_info = chunk.metadata.pop("_pending_file_info", None)
+                    
+                    payload = {
+                        "file_path": chunk.file_path,
+                        "start_line": chunk.start_line,
+                        "end_line": chunk.end_line,
+                        "content": chunk.content,
+                        "language": chunk.language,
+                        "chunk_type": chunk.chunk_type,
+                        "artifact_type": ArtifactType.CHUNK.value,
+                        **chunk.metadata,
+                    }
+                    await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
+                    
+                    file_path = pending_info["file_path"] if pending_info else None
+                    if file_path and file_path not in persisted_files:
+                        batch_file_infos[file_path] = pending_info
+                
+                qdrant_duration_ms = (time.time() - qdrant_start) * 1000
+                
+                # Log Qdrant operation with structured fields
+                logger.info(
+                    "Qdrant upsert completed",
+                    extra={
+                        "duration_ms": qdrant_duration_ms,
+                        "chunk_count": len(batch),
+                        "batch_index": batch_index,
+                    },
                 )
-                persisted_files.add(file_path)
+                
+                # Record metrics if collector is available
+                if self._metrics_collector:
+                    self._metrics_collector.record_qdrant_duration(
+                        qdrant_duration_ms, len(batch)
+                    )
+
+                # Write metadata for this batch immediately after vectors succeed
+                for file_path, info in batch_file_infos.items():
+                    self._metadata_store.upsert_file(
+                        IndexedFileInfo(
+                            file_path=info["file_path"],
+                            content_hash=info["content_hash"],
+                            language=info["language"],
+                            line_count=info["line_count"],
+                            chunk_count=info["chunk_count"],
+                            indexed_at=datetime.now().astimezone(),
+                            modified_time=info["modified_time"],
+                        )
+                    )
+                    persisted_files.add(file_path)
+                
+                # Batch completed successfully, clear pending marker
+                self._metadata_store.complete_pending_batch(batch_id)
+                
+            except Exception as e:
+                # Rollback pending batch on failure
+                logger.error(f"Batch {batch_id} failed: {e}. Rolling back.")
+                self._metadata_store.rollback_pending_batch(batch_id)
+                raise
 
             self._report_progress(
                 min(i + self._batch_size, total_chunks),
@@ -409,7 +557,8 @@ class IndexingService:
                 f"Embedded {min(i + self._batch_size, total_chunks)} chunks",
             )
 
-        # Process summaries
+        # Process summaries (no pending batch tracking for summaries as they
+        # don't have associated file metadata)
         if summaries:
             for i in range(0, total_summaries, self._batch_size):
                 batch = summaries[i : i + self._batch_size]
@@ -541,6 +690,23 @@ class IndexingService:
             await self._embed_and_store_chunks(all_chunks, all_summaries)
 
         result.duration_seconds = time.time() - start_time
+        
+        # Log indexing summary with structured fields
+        logger.info(
+            "Indexing completed",
+            extra={
+                "total_chunks": result.total_chunks,
+                "total_files": result.total_files,
+                "duration_seconds": result.duration_seconds,
+            },
+        )
+        
+        # Record metrics if collector is available
+        if self._metrics_collector:
+            self._metrics_collector.record_indexing_complete(
+                result.total_chunks, result.total_files, result.duration_seconds
+            )
+        
         logger.info(
             f"Incremental update completed in {result.duration_seconds:.2f}s: "
             f"{result.total_files} files, {result.total_chunks} chunks, "

@@ -17,6 +17,7 @@ from aci.core.path_utils import is_system_directory
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
 from aci.services import IndexingService, SearchMode, SearchService
+from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,9 @@ def create_app() -> FastAPI:
     # Create GrepSearcher with base path from config or current directory
     grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
 
+    # Create shared MetricsCollector instance
+    metrics_collector = MetricsCollector()
+
     search_service = SearchService(
         embedding_client=embedding_client,
         vector_store=vector_store,
@@ -82,6 +86,7 @@ def create_app() -> FastAPI:
         chunker=chunker,
         batch_size=cfg.embedding.batch_size,
         max_workers=cfg.indexing.max_workers,
+        metrics_collector=metrics_collector,
     )
 
     app = FastAPI(
@@ -93,6 +98,11 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics():
+        """Return current operational metrics in JSON format."""
+        return metrics_collector.get_metrics()
 
     @app.get("/status")
     async def status(path: Optional[str] = None):
@@ -113,11 +123,30 @@ def create_app() -> FastAPI:
                             collection_name = get_collection_name_for_path(status_path_abs)
 
             vector_stats = await vector_store.get_stats(collection_name=collection_name)
+
+            # Get staleness information
+            stale_files = metadata_store.get_stale_files(limit=5)
+            all_stale_files = metadata_store.get_stale_files()
+            stale_file_count = len(all_stale_files)
+
+            # Format stale files sample with staleness in hours
+            stale_files_sample = [
+                {"path": file_path, "staleness_hours": round(staleness_seconds / 3600, 2)}
+                for file_path, staleness_seconds in stale_files
+            ]
+
             return {
                 "metadata": metadata_stats,
                 "vector_store": vector_stats,
                 "embedding_model": cfg.embedding.model,
                 "collection_name": collection_name,
+                "vector_count": vector_stats.get("total_vectors", 0),
+                "file_count": metadata_stats.get("total_files", 0),
+                "staleness": {
+                    "stale_file_count": stale_file_count,
+                    "stale_files_sample": stale_files_sample,
+                },
+                "stale_file_count": stale_file_count,
             }
         except Exception as exc:
             logger.error(f"Error in /status: {exc}", exc_info=True)

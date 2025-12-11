@@ -64,14 +64,21 @@ class TrackingVectorStore:
         self.last_search_limit: Optional[int] = None
         self.search_calls: List[dict] = []
 
-    async def search(self, query_vector, limit=10, file_filter=None, collection_name=None):
+    async def search(self, query_vector, limit=10, file_filter=None, collection_name=None, artifact_types=None):
         self.last_search_limit = limit
         self.search_calls.append({
             "limit": limit,
             "file_filter": file_filter,
             "collection_name": collection_name,
+            "artifact_types": artifact_types,
         })
-        return await self._base.search(query_vector, limit, file_filter, collection_name)
+        return await self._base.search(
+            query_vector=query_vector,
+            limit=limit,
+            file_filter=file_filter,
+            collection_name=collection_name,
+            artifact_types=artifact_types,
+        )
 
     # Delegate other methods
     async def upsert(self, *args, **kwargs):
