@@ -313,6 +313,30 @@ class ACIConfig:
         """Serialize configuration to JSON string."""
         return json.dumps(self.to_dict(), indent=2)
 
+    def to_dict_safe(self) -> dict:
+        """
+        Convert configuration to a dictionary with sensitive fields redacted.
+        
+        This method is safe for logging and debugging purposes as it masks
+        API keys, passwords, and other sensitive information.
+        
+        Returns:
+            Dictionary with sensitive fields replaced with '[REDACTED]'
+        """
+        config_dict = self.to_dict()
+        
+        # Redact sensitive fields in embedding config
+        if "embedding" in config_dict and "api_key" in config_dict["embedding"]:
+            if config_dict["embedding"]["api_key"]:
+                config_dict["embedding"]["api_key"] = "[REDACTED]"
+        
+        # Redact sensitive fields in search/rerank config
+        if "search" in config_dict and "rerank_api_key" in config_dict["search"]:
+            if config_dict["search"]["rerank_api_key"]:
+                config_dict["search"]["rerank_api_key"] = "[REDACTED]"
+        
+        return config_dict
+
     def save(self, path: Path | str) -> None:
         """
         Save configuration to a file.

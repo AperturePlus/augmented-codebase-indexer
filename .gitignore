@@ -6,6 +6,12 @@ uv.lock
 .pytest_cache/.venv-wsl/
 .diagnoses/
 .env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+.secrets/
 .compare
 .ruff_cache
 .pytest_cache/
