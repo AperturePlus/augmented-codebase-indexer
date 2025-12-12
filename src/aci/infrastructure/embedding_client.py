@@ -115,6 +115,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         batch_size: int = 100,
         timeout: float = 30.0,
         retry_config: Optional[RetryConfig] = None,
+        encoding_format='float'
     ):
         """
         Initialize the embedding client.
@@ -138,6 +139,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         self._batch_size = batch_size
         self._timeout = timeout
         self._retry_config = retry_config or RetryConfig()
+        self.encoding_format = encoding_format
 
         # Connection pooling - reuse HTTP client across requests (Req 6.5)
         self._client: Optional[httpx.AsyncClient] = None
@@ -331,6 +333,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         payload = {
             "input": texts,
             "model": self._model,
+            "encoding_format":self.encoding_format
         }
 
         # Use pooled client for connection reuse (Req 6.5)
