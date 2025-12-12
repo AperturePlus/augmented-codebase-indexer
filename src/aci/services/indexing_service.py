@@ -23,7 +23,7 @@ from aci.core.chunker import Chunker, ChunkerInterface, CodeChunk, create_chunke
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
 from aci.core.summary_artifact import ArtifactType, SummaryArtifact
-from aci.infrastructure.embedding_client import EmbeddingClientInterface
+from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile

@@ -128,6 +128,13 @@ class GitignoreManager:
         """
         Load patterns from a .gitignore file.
 
+        Handles the following error conditions gracefully:
+        - Invalid UTF-8 encoding: Logs warning, returns 0
+        - Malformed patterns: Logs warning, skips pattern, continues with others
+        - Permission errors: Logs warning, returns 0
+        - Empty files: Returns 0 (no patterns to load)
+        - File not found: Logs debug, returns 0
+
         Args:
             gitignore_path: Path to the .gitignore file
 
@@ -135,7 +142,7 @@ class GitignoreManager:
             Number of patterns loaded
 
         Raises:
-            No exceptions - errors are logged and the method returns 0
+            No exceptions - all errors are logged and the method returns gracefully
         """
         gitignore_path = Path(gitignore_path).resolve()
         
@@ -152,17 +159,28 @@ class GitignoreManager:
             source_depth = 0
 
         patterns_loaded = 0
+        skipped_patterns = 0
 
+        # Read file content with graceful error handling
         try:
             content = gitignore_path.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:
-            logger.warning(f"Invalid UTF-8 encoding in {gitignore_path}: {e}")
+            logger.warning(
+                f"Invalid UTF-8 encoding in {gitignore_path}, skipping file: {e}"
+            )
             return 0
         except PermissionError as e:
-            logger.warning(f"Permission denied reading {gitignore_path}: {e}")
+            logger.warning(
+                f"Permission denied reading {gitignore_path}, skipping file: {e}"
+            )
             return 0
         except OSError as e:
-            logger.warning(f"Error reading {gitignore_path}: {e}")
+            logger.warning(f"Error reading {gitignore_path}, skipping file: {e}")
+            return 0
+
+        # Handle empty files gracefully
+        if not content or not content.strip():
+            logger.debug(f"Empty gitignore file: {gitignore_path}")
             return 0
 
         for line in content.splitlines():
@@ -177,19 +195,65 @@ class GitignoreManager:
             if line.startswith("#"):
                 continue
 
+            # Validate and parse pattern
             try:
+                # Check for malformed patterns before parsing
+                validation_error = self._validate_pattern(line)
+                if validation_error:
+                    logger.warning(
+                        f"Malformed pattern '{line}' in {gitignore_path}: {validation_error}"
+                    )
+                    skipped_patterns += 1
+                    continue
+
                 pattern = GitignorePattern.parse(line, gitignore_path, source_depth)
                 self._patterns.append(pattern)
                 patterns_loaded += 1
             except Exception as e:
-                logger.warning(f"Malformed pattern '{line}' in {gitignore_path}: {e}")
+                logger.warning(
+                    f"Failed to parse pattern '{line}' in {gitignore_path}: {e}"
+                )
+                skipped_patterns += 1
                 continue
 
         if patterns_loaded > 0:
             self._pathspec_dirty = True
-            logger.debug(f"Loaded {patterns_loaded} patterns from {gitignore_path}")
+
+        # Log summary at debug level (Requirement 6.1)
+        logger.debug(
+            f"Loaded {patterns_loaded} patterns from {gitignore_path}"
+            + (f" ({skipped_patterns} skipped)" if skipped_patterns > 0 else "")
+        )
 
         return patterns_loaded
+
+    def _validate_pattern(self, pattern: str) -> str | None:
+        """
+        Validate a gitignore pattern for common malformations.
+
+        Args:
+            pattern: Raw pattern string to validate
+
+        Returns:
+            Error message if pattern is malformed, None if valid
+        """
+        # Check for patterns that are just special characters
+        stripped = pattern.lstrip("!").rstrip("/")
+        if not stripped:
+            return "Pattern is empty after removing special characters"
+
+        # Check for unbalanced brackets in glob patterns
+        if "[" in pattern or "]" in pattern:
+            open_count = pattern.count("[")
+            close_count = pattern.count("]")
+            if open_count != close_count:
+                return f"Unbalanced brackets: {open_count} '[' vs {close_count} ']'"
+
+        # Check for invalid escape sequences (backslash at end)
+        if pattern.endswith("\\") and not pattern.endswith("\\\\"):
+            return "Pattern ends with incomplete escape sequence"
+
+        return None
 
     def add_default_patterns(self, patterns: list[str]) -> None:
         """
@@ -345,6 +409,39 @@ class GitignoreManager:
         """Return a copy of the loaded patterns."""
         return list(self._patterns)
 
+    def get_loaded_gitignore_summary(self) -> dict[Path, int]:
+        """
+        Get a summary of loaded .gitignore files and their pattern counts.
+
+        This is useful for verbose mode reporting (Requirement 6.3).
+
+        Returns:
+            Dictionary mapping .gitignore file paths to number of patterns loaded
+        """
+        summary: dict[Path, int] = {}
+        for pattern in self._patterns:
+            source = pattern.source_path
+            if source not in summary:
+                summary[source] = 0
+            summary[source] += 1
+        return summary
+
+    def log_verbose_summary(self) -> None:
+        """
+        Log a verbose summary of loaded .gitignore files.
+
+        Logs which .gitignore files were loaded and how many patterns each contained.
+        This is intended for verbose/debug mode (Requirement 6.3).
+        """
+        summary = self.get_loaded_gitignore_summary()
+        if not summary:
+            logger.info("No .gitignore files loaded")
+            return
+
+        logger.info(f"Loaded {len(summary)} .gitignore file(s):")
+        for gitignore_path, count in sorted(summary.items(), key=lambda x: str(x[0])):
+            logger.info(f"  {gitignore_path}: {count} pattern(s)")
+
 
     def matches(self, path: Path, is_dir: bool = False) -> bool:
         """
@@ -379,13 +476,22 @@ class GitignoreManager:
         else:
             rel_path_str_match = rel_path_str
 
-        # Track whether the path is currently ignored
+        # Track whether the path is currently ignored and which pattern matched
         ignored = False
+        matching_pattern: GitignorePattern | None = None
 
         for pattern in self._patterns:
             if self._pattern_matches(pattern, rel_path_str, rel_path_str_match, is_dir):
                 # Pattern matches - update ignored status based on negation
                 ignored = not pattern.negation
+                matching_pattern = pattern
+
+        # Log file exclusions with matching pattern (Requirement 6.2)
+        if ignored and matching_pattern is not None:
+            logger.debug(
+                f"Excluding '{rel_path_str}' - matched pattern '{matching_pattern.raw}' "
+                f"from {matching_pattern.source_path}"
+            )
 
         return ignored
 

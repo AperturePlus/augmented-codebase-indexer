@@ -7,7 +7,7 @@ Tests Fix 3: Server-side file path filtering
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from aci.infrastructure.vector_store import _is_glob_pattern
+from aci.infrastructure.vector_store import is_glob_pattern
 
 
 # =============================================================================
@@ -33,7 +33,7 @@ class TestGlobPatternDetection:
         if any(c in path for c in "*?["):
             return  # Skip if hypothesis generates these
 
-        assert not _is_glob_pattern(path), f"'{path}' should not be a glob pattern"
+        assert not is_glob_pattern(path), f"'{path}' should not be a glob pattern"
 
     @given(
         base_path=st.from_regex(r"[a-zA-Z0-9_/\-]+", fullmatch=True),
@@ -43,7 +43,7 @@ class TestGlobPatternDetection:
     def test_paths_with_wildcards_are_glob(self, base_path, wildcard):
         """Paths with *, ?, [ should be detected as glob patterns."""
         glob_path = f"{base_path}/{wildcard}"
-        assert _is_glob_pattern(glob_path), f"'{glob_path}' should be a glob pattern"
+        assert is_glob_pattern(glob_path), f"'{glob_path}' should be a glob pattern"
 
     def test_common_exact_paths(self):
         """Common exact file paths should not be glob patterns."""
@@ -58,7 +58,7 @@ class TestGlobPatternDetection:
         ]
 
         for path in exact_paths:
-            assert not _is_glob_pattern(path), f"'{path}' should not be a glob pattern"
+            assert not is_glob_pattern(path), f"'{path}' should not be a glob pattern"
 
     def test_common_glob_patterns(self):
         """Common glob patterns should be detected."""
@@ -74,7 +74,7 @@ class TestGlobPatternDetection:
         ]
 
         for pattern in glob_patterns:
-            assert _is_glob_pattern(pattern), f"'{pattern}' should be a glob pattern"
+            assert is_glob_pattern(pattern), f"'{pattern}' should be a glob pattern"
 
 
 class TestExactPathServerSideFiltering:
@@ -99,7 +99,7 @@ class TestExactPathServerSideFiltering:
         ]
 
         for path in exact_paths:
-            is_exact = not _is_glob_pattern(path)
+            is_exact = not is_glob_pattern(path)
             assert is_exact, f"'{path}' should be detected as exact path"
 
 
@@ -126,5 +126,5 @@ class TestGlobPatternClientSideFiltering:
         ]
 
         for pattern in glob_patterns:
-            is_glob = _is_glob_pattern(pattern)
+            is_glob = is_glob_pattern(pattern)
             assert is_glob, f"'{pattern}' should be detected as glob pattern"

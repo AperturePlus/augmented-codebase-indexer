@@ -2,7 +2,8 @@
 Infrastructure Layer - Embedding client and vector store implementations.
 """
 
-from aci.infrastructure.embedding_client import (
+from aci.infrastructure.embedding import (
+    BatchSizeError,
     EmbeddingClientError,
     EmbeddingClientInterface,
     NonRetryableError,
@@ -24,6 +25,7 @@ from aci.infrastructure.metadata_store import (
     IndexedFileInfo,
     IndexMetadataStore,
     MetadataStoreError,
+    PendingBatch,
     create_metadata_store,
 )
 from aci.infrastructure.vector_store import (
@@ -32,6 +34,7 @@ from aci.infrastructure.vector_store import (
     VectorStoreError,
     VectorStoreInterface,
     create_vector_store,
+    is_glob_pattern,
 )
 
 __all__ = [
@@ -41,6 +44,7 @@ __all__ = [
     "EmbeddingClientError",
     "RetryableError",
     "NonRetryableError",
+    "BatchSizeError",
     "RetryConfig",
     "create_embedding_client",
     # Vector store
@@ -49,6 +53,7 @@ __all__ = [
     "SearchResult",
     "VectorStoreError",
     "create_vector_store",
+    "is_glob_pattern",
     # Grep searcher
     "GrepSearcherInterface",
     "GrepSearcher",
@@ -56,6 +61,7 @@ __all__ = [
     # Metadata store
     "IndexMetadataStore",
     "IndexedFileInfo",
+    "PendingBatch",
     "MetadataStoreError",
     "create_metadata_store",
     # Fakes for testing

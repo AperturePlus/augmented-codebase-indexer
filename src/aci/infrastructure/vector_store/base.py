@@ -12,10 +12,10 @@ from typing import Dict, List, Optional
 def is_glob_pattern(path: str) -> bool:
     """
     Check if a path contains glob wildcard characters.
-    
+
     Args:
         path: File path to check
-        
+
     Returns:
         True if path contains *, ?, or [ characters (glob wildcards)
     """
@@ -70,12 +70,8 @@ class VectorStoreInterface(ABC):
             query_vector: Query embedding vector
             limit: Maximum results to return
             file_filter: Optional glob pattern for file paths
-            collection_name: Optional collection to search. If provided, searches
-                that collection without modifying instance state. If None, uses
-                the instance's default collection.
+            collection_name: Optional collection to search
             artifact_types: Optional list of artifact types to filter by
-                (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
-                If None, returns all artifact types.
 
         Returns:
             List of SearchResult sorted by score descending
@@ -84,17 +80,7 @@ class VectorStoreInterface(ABC):
 
     @abstractmethod
     async def get_stats(self, collection_name: Optional[str] = None) -> dict:
-        """
-        Get storage statistics.
-
-        Args:
-            collection_name: Optional collection to get stats for. If provided,
-                returns stats for that collection without modifying instance state.
-                If None, uses the instance's default collection.
-
-        Returns:
-            Dictionary with storage statistics
-        """
+        """Get storage statistics."""
         pass
 
     @abstractmethod
@@ -104,17 +90,7 @@ class VectorStoreInterface(ABC):
 
     @abstractmethod
     async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
-        """
-        Get all unique file paths in the store.
-
-        Args:
-            collection_name: Optional collection to query. If provided, returns
-                file paths from that collection without modifying instance state.
-                If None, uses the instance's default collection.
-
-        Returns:
-            List of unique file paths
-        """
+        """Get all unique file paths in the store."""
         pass
 
     async def reset(self) -> None:
@@ -123,13 +99,5 @@ class VectorStoreInterface(ABC):
 
     @abstractmethod
     async def delete_collection(self, collection_name: str) -> bool:
-        """
-        Delete a collection entirely.
-
-        Args:
-            collection_name: Name of the collection to delete
-
-        Returns:
-            True if the collection was deleted, False if it did not exist
-        """
+        """Delete a collection entirely."""
         pass

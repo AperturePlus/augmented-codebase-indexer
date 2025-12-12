@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from aci.infrastructure.embedding_client import OpenAIEmbeddingClient, RetryConfig
+from aci.infrastructure.embedding import OpenAIEmbeddingClient, RetryConfig
+from aci.infrastructure.embedding.response_parser import is_token_limit_error
 
 # Strategy for generating text batches
 text_strategy = st.text(
@@ -199,15 +200,10 @@ def test_token_limit_error_detection_413(response_body: str):
     *For any* HTTP 413 response, the error classification function SHALL
     return True (indicating a token limit error), regardless of response body.
     """
-    client = OpenAIEmbeddingClient(
-        api_url="https://api.example.com/embeddings",
-        api_key="test-key",
-    )
-
     # 413 should always be detected as token limit error
-    assert client._is_token_limit_error(413, response_body) is True
-    assert client._is_token_limit_error(413, "") is True
-    assert client._is_token_limit_error(413, "any random text") is True
+    assert is_token_limit_error(413, response_body) is True
+    assert is_token_limit_error(413, "") is True
+    assert is_token_limit_error(413, "any random text") is True
 
 
 @given(response_body=st.sampled_from(token_limit_patterns))
@@ -220,13 +216,8 @@ def test_token_limit_error_detection_400_with_pattern(response_body: str):
     *For any* HTTP 400 response with token limit patterns in the body,
     the error classification function SHALL return True.
     """
-    client = OpenAIEmbeddingClient(
-        api_url="https://api.example.com/embeddings",
-        api_key="test-key",
-    )
-
     # 400 with token limit patterns should be detected
-    assert client._is_token_limit_error(400, response_body) is True
+    assert is_token_limit_error(400, response_body) is True
 
 
 @given(response_body=st.sampled_from(non_token_limit_patterns))
@@ -239,13 +230,8 @@ def test_non_token_limit_error_detection_400(response_body: str):
     *For any* HTTP 400 response without token limit patterns,
     the error classification function SHALL return False.
     """
-    client = OpenAIEmbeddingClient(
-        api_url="https://api.example.com/embeddings",
-        api_key="test-key",
-    )
-
     # 400 without token limit patterns should not be detected
-    assert client._is_token_limit_error(400, response_body) is False
+    assert is_token_limit_error(400, response_body) is False
 
 
 @given(
@@ -263,13 +249,8 @@ def test_non_token_limit_status_codes(status_code: int, response_body: str):
     *For any* HTTP status code other than 400 or 413, the error classification
     function SHALL return False, regardless of response body content.
     """
-    client = OpenAIEmbeddingClient(
-        api_url="https://api.example.com/embeddings",
-        api_key="test-key",
-    )
-
     # Non-400/413 status codes should never be detected as token limit errors
-    assert client._is_token_limit_error(status_code, response_body) is False
+    assert is_token_limit_error(status_code, response_body) is False
 
 
 @given(
@@ -325,7 +306,7 @@ def test_complete_processing_with_fallback(
     *For any* list of texts where at least one valid batch size exists that succeeds,
     embed_batch SHALL return embeddings for all input texts (output length equals input length).
     """
-    from aci.infrastructure.embedding_client import BatchSizeError
+    from aci.infrastructure.embedding import BatchSizeError
 
     # Ensure fail_threshold < initial_batch_size for meaningful test
     fail_threshold = min(fail_threshold, initial_batch_size - 1)
@@ -396,7 +377,7 @@ def test_fallback_disabled_raises_immediately(texts_count: int):
     *For any* RetryConfig with enable_batch_fallback=False, when a 413 error occurs,
     the client SHALL raise NonRetryableError immediately without attempting batch reduction.
     """
-    from aci.infrastructure.embedding_client import NonRetryableError
+    from aci.infrastructure.embedding import NonRetryableError
 
     texts = [f"text_{i}" for i in range(texts_count)]
     call_count = 0

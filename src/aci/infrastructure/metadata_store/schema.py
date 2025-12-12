@@ -7,7 +7,6 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
-# SQL schema for the database
 SCHEMA = """
 -- Index metadata
 CREATE TABLE IF NOT EXISTS index_info (
@@ -61,22 +60,16 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
 
 
 def migrate_schema(conn: sqlite3.Connection) -> None:
-    """
-    Run schema migrations for existing databases.
-    
-    Adds new columns/tables that may be missing from older database versions.
-    """
+    """Run schema migrations for existing databases."""
     try:
-        # Check if collection_name column exists in index_info
         cursor = conn.execute("PRAGMA table_info(index_info)")
         columns = {row[1] for row in cursor.fetchall()}
-        
+
         if "collection_name" not in columns:
             logger.info("Migrating database: adding collection_name column to index_info")
             conn.execute("ALTER TABLE index_info ADD COLUMN collection_name TEXT")
             conn.commit()
-        
-        # Check if pending_batches table exists
+
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_batches'"
         )

@@ -9,7 +9,7 @@ import inspect
 import logging
 from typing import List, Optional
 
-from aci.infrastructure.embedding_client import EmbeddingClientInterface
+from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.grep_searcher import GrepSearcherInterface
 from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface
 from aci.services.search_types import RerankerInterface, SearchMode

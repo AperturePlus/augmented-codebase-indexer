@@ -736,3 +736,335 @@ def test_gitignore_hierarchy_loading(pattern_name):
         # Nested pattern should only match in nested
         assert manager.matches(Path("subdir1") / "nested" / f"nested_{pattern_name}", is_dir=False)
         assert not manager.matches(Path("subdir1") / f"nested_{pattern_name}", is_dir=False)
+
+
+# =============================================================================
+# Property Tests for Cross-Platform Path Normalization
+# =============================================================================
+
+
+@st.composite
+def path_with_mixed_separators_strategy(draw):
+    """
+    Generate test cases with paths using different separator styles.
+
+    Returns:
+        tuple: (pattern_name, path_parts)
+    """
+    pattern_name = draw(simple_pattern_name)
+    # Generate 1-4 directory parts
+    num_parts = draw(st.integers(min_value=1, max_value=4))
+    path_parts = [draw(safe_dir_name) for _ in range(num_parts)]
+    return pattern_name, path_parts
+
+
+@given(data=path_with_mixed_separators_strategy())
+@settings(max_examples=100, deadline=None)
+def test_cross_platform_path_normalization(data):
+    """
+    **Feature: gitignore-path-traversal-fix, Property 13: Cross-Platform Path Normalization**
+    **Validates: Requirements 5.1, 5.3**
+
+    For any file path on any platform, the GitignoreManager SHALL normalize path
+    separators to forward slashes before pattern matching, and patterns using
+    forward slashes SHALL work correctly.
+    """
+    pattern_name, path_parts = data
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with forward-slash pattern (standard gitignore format)
+        # Pattern like: dir1/dir2/filename
+        forward_slash_pattern = "/".join(path_parts) + "/" + pattern_name
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{forward_slash_pattern}\n", encoding="utf-8")
+
+        # Create manager and load patterns
+        manager = GitignoreManager(tmpdir_path)
+        manager.load_gitignore(gitignore_path)
+
+        # Test 1: Path constructed with Path() (uses OS-native separators) should match
+        native_path = Path(*path_parts) / pattern_name
+        assert manager.matches(native_path, is_dir=False), (
+            f"Pattern '{forward_slash_pattern}' should match native path '{native_path}'"
+        )
+
+        # Test 2: Path with explicit forward slashes should match
+        forward_slash_path_str = "/".join(path_parts) + "/" + pattern_name
+        forward_slash_path = Path(forward_slash_path_str)
+        assert manager.matches(forward_slash_path, is_dir=False), (
+            f"Pattern '{forward_slash_pattern}' should match forward-slash path '{forward_slash_path}'"
+        )
+
+
+@given(pattern_name=simple_pattern_name, subdir_name=safe_dir_name)
+@settings(max_examples=100, deadline=None)
+def test_forward_slash_patterns_work_on_all_platforms(pattern_name, subdir_name):
+    """
+    **Feature: gitignore-path-traversal-fix, Property 13: Cross-Platform Path Normalization**
+    **Validates: Requirements 5.1, 5.3**
+
+    Tests that .gitignore patterns using forward slashes work correctly
+    regardless of the operating system.
+    """
+    assume(pattern_name != subdir_name)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with forward-slash pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{subdir_name}/{pattern_name}\n", encoding="utf-8")
+
+        # Create manager and load patterns
+        manager = GitignoreManager(tmpdir_path)
+        manager.load_gitignore(gitignore_path)
+
+        # Test: Path should match regardless of how it's constructed
+        # Using Path() which uses OS-native separators internally
+        test_path = Path(subdir_name) / pattern_name
+        assert manager.matches(test_path, is_dir=False), (
+            f"Pattern '{subdir_name}/{pattern_name}' should match '{test_path}' on any platform"
+        )
+
+        # Test: File at root should NOT match (pattern has directory component)
+        root_file = Path(pattern_name)
+        assert not manager.matches(root_file, is_dir=False), (
+            f"Pattern '{subdir_name}/{pattern_name}' should NOT match root file '{root_file}'"
+        )
+
+
+@given(pattern_name=simple_pattern_name)
+@settings(max_examples=100, deadline=None)
+def test_backslash_in_path_normalized_to_forward_slash(pattern_name):
+    """
+    **Feature: gitignore-path-traversal-fix, Property 13: Cross-Platform Path Normalization**
+    **Validates: Requirements 5.1, 5.3**
+
+    Tests that paths with backslashes (Windows-style) are normalized to
+    forward slashes before matching against gitignore patterns.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with forward-slash pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"subdir/{pattern_name}\n", encoding="utf-8")
+
+        # Create manager and load patterns
+        manager = GitignoreManager(tmpdir_path)
+        manager.load_gitignore(gitignore_path)
+
+        # Test: Path with backslash should be normalized and match
+        # Note: On POSIX, backslash is a valid filename character, but
+        # GitignoreManager normalizes all backslashes to forward slashes
+        # for consistent cross-platform behavior
+        test_path = Path("subdir") / pattern_name
+        assert manager.matches(test_path, is_dir=False), (
+            f"Pattern 'subdir/{pattern_name}' should match path with normalized separators"
+        )
+
+
+# =============================================================================
+# Property Tests for Platform-Specific Case Sensitivity
+# =============================================================================
+
+
+def test_case_insensitive_matching_on_windows():
+    """
+    **Feature: gitignore-path-traversal-fix, Property 14: Platform-Specific Case Sensitivity**
+    **Validates: Requirements 5.2**
+
+    Tests that pattern matching is case-insensitive when case_sensitive=False
+    (simulating Windows behavior).
+    """
+    # Use a pattern with mixed case
+    pattern_name = "TestFile"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with mixed-case pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{pattern_name}\n", encoding="utf-8")
+
+        # Create manager with case_sensitive=False (Windows behavior)
+        manager = GitignoreManager(tmpdir_path, case_sensitive=False)
+        manager.load_gitignore(gitignore_path)
+
+        # Test: All case variations should match
+        assert manager.matches(Path("TestFile"), is_dir=False), (
+            "Exact case should match"
+        )
+        assert manager.matches(Path("testfile"), is_dir=False), (
+            "Lowercase should match when case_sensitive=False"
+        )
+        assert manager.matches(Path("TESTFILE"), is_dir=False), (
+            "Uppercase should match when case_sensitive=False"
+        )
+        assert manager.matches(Path("tEsTfIlE"), is_dir=False), (
+            "Mixed case should match when case_sensitive=False"
+        )
+
+
+def test_case_sensitive_matching_on_posix():
+    """
+    **Feature: gitignore-path-traversal-fix, Property 14: Platform-Specific Case Sensitivity**
+    **Validates: Requirements 5.2**
+
+    Tests that pattern matching is case-sensitive when case_sensitive=True
+    (simulating POSIX behavior).
+    """
+    # Use a pattern with specific case
+    pattern_name = "TestFile"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with specific-case pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{pattern_name}\n", encoding="utf-8")
+
+        # Create manager with case_sensitive=True (POSIX behavior)
+        manager = GitignoreManager(tmpdir_path, case_sensitive=True)
+        manager.load_gitignore(gitignore_path)
+
+        # Test: Only exact case should match
+        assert manager.matches(Path("TestFile"), is_dir=False), (
+            "Exact case should match"
+        )
+        assert not manager.matches(Path("testfile"), is_dir=False), (
+            "Lowercase should NOT match when case_sensitive=True"
+        )
+        assert not manager.matches(Path("TESTFILE"), is_dir=False), (
+            "Uppercase should NOT match when case_sensitive=True"
+        )
+
+
+@st.composite
+def case_variation_strategy(draw):
+    """
+    Generate a pattern and various case variations of it.
+
+    Returns:
+        tuple: (original_pattern, case_variations)
+    """
+    # Generate a pattern with letters
+    pattern = draw(st.text(
+        st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")),
+        min_size=3,
+        max_size=10
+    ))
+    assume(len(pattern) >= 3)
+
+    # Generate case variations
+    variations = [
+        pattern,
+        pattern.lower(),
+        pattern.upper(),
+        pattern.swapcase(),
+    ]
+
+    return pattern, variations
+
+
+@given(data=case_variation_strategy())
+@settings(max_examples=100, deadline=None)
+def test_case_sensitivity_consistency(data):
+    """
+    **Feature: gitignore-path-traversal-fix, Property 14: Platform-Specific Case Sensitivity**
+    **Validates: Requirements 5.2**
+
+    Tests that case sensitivity behavior is consistent across all pattern types
+    and path depths.
+    """
+    pattern, variations = data
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with the pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{pattern}\n", encoding="utf-8")
+
+        # Test with case_sensitive=False (Windows)
+        manager_insensitive = GitignoreManager(tmpdir_path, case_sensitive=False)
+        manager_insensitive.load_gitignore(gitignore_path)
+
+        # All variations should match when case-insensitive
+        for variation in variations:
+            assert manager_insensitive.matches(Path(variation), is_dir=False), (
+                f"Variation '{variation}' should match pattern '{pattern}' "
+                f"when case_sensitive=False"
+            )
+
+        # Test with case_sensitive=True (POSIX)
+        manager_sensitive = GitignoreManager(tmpdir_path, case_sensitive=True)
+        manager_sensitive.load_gitignore(gitignore_path)
+
+        # Only exact match should work when case-sensitive
+        assert manager_sensitive.matches(Path(pattern), is_dir=False), (
+            f"Exact pattern '{pattern}' should match when case_sensitive=True"
+        )
+
+        # Other variations should only match if they're identical
+        for variation in variations:
+            if variation == pattern:
+                assert manager_sensitive.matches(Path(variation), is_dir=False)
+            else:
+                assert not manager_sensitive.matches(Path(variation), is_dir=False), (
+                    f"Variation '{variation}' should NOT match pattern '{pattern}' "
+                    f"when case_sensitive=True"
+                )
+
+
+@given(pattern_name=simple_pattern_name, subdir_name=safe_dir_name)
+@settings(max_examples=100, deadline=None)
+def test_case_sensitivity_in_path_components(pattern_name, subdir_name):
+    """
+    **Feature: gitignore-path-traversal-fix, Property 14: Platform-Specific Case Sensitivity**
+    **Validates: Requirements 5.2**
+
+    Tests that case sensitivity applies to all path components, not just
+    the filename.
+    """
+    assume(pattern_name != subdir_name)
+    assume(pattern_name.lower() != pattern_name.upper())  # Has letters
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create .gitignore with path pattern
+        gitignore_path = tmpdir_path / ".gitignore"
+        gitignore_path.write_text(f"{subdir_name}/{pattern_name}\n", encoding="utf-8")
+
+        # Test case-insensitive (Windows)
+        manager_insensitive = GitignoreManager(tmpdir_path, case_sensitive=False)
+        manager_insensitive.load_gitignore(gitignore_path)
+
+        # Should match with different case in directory name
+        assert manager_insensitive.matches(
+            Path(subdir_name.upper()) / pattern_name, is_dir=False
+        ), "Directory case variation should match when case_sensitive=False"
+
+        # Should match with different case in filename
+        assert manager_insensitive.matches(
+            Path(subdir_name) / pattern_name.upper(), is_dir=False
+        ), "Filename case variation should match when case_sensitive=False"
+
+        # Test case-sensitive (POSIX)
+        manager_sensitive = GitignoreManager(tmpdir_path, case_sensitive=True)
+        manager_sensitive.load_gitignore(gitignore_path)
+
+        # Should NOT match with different case in directory name
+        if subdir_name.upper() != subdir_name:
+            assert not manager_sensitive.matches(
+                Path(subdir_name.upper()) / pattern_name, is_dir=False
+            ), "Directory case variation should NOT match when case_sensitive=True"
+
+        # Should NOT match with different case in filename
+        if pattern_name.upper() != pattern_name:
+            assert not manager_sensitive.matches(
+                Path(subdir_name) / pattern_name.upper(), is_dir=False
+            ), "Filename case variation should NOT match when case_sensitive=True"

@@ -10,8 +10,8 @@ import hashlib
 import math
 from typing import Dict, List, Optional
 
-from aci.infrastructure.embedding_client import EmbeddingClientInterface
-from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface
+from aci.infrastructure.embedding import EmbeddingClientInterface
+from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface, is_glob_pattern
 
 
 class InMemoryVectorStore(VectorStoreInterface):

@@ -2,10 +2,9 @@
 Low-level SQL query executor for metadata store.
 """
 
-import json
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 def _now_with_tz() -> datetime:
