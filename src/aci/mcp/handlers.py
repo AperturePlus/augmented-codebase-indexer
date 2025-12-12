@@ -105,19 +105,25 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
     if not search_path.is_dir():
         return [TextContent(type="text", text=f"Error: Path is not a directory: {search_path}")]
 
-    # Check if path is indexed and get collection name
+    # Check if path (or a parent) is indexed and get collection name
     search_path_abs = str(search_path.resolve())
-    index_info = metadata_store.get_index_info(search_path_abs)
+    index_info = metadata_store.find_parent_index(search_path_abs)
     if index_info is None:
         return [TextContent(type="text", text=f"Error: Path has not been indexed: {search_path}. Run index_codebase first.")]
 
-    # Get collection name for this codebase (no shared state mutation)
-    # For backward compatibility, generate collection name if not stored
+    # Get collection name from the found index
+    indexed_root = index_info.get("root_path", search_path_abs)
     collection_name = index_info.get("collection_name")
     if not collection_name:
         from aci.core.path_utils import get_collection_name_for_path
-        collection_name = get_collection_name_for_path(search_path_abs)
-        metadata_store.register_repository(search_path_abs, collection_name)
+        collection_name = get_collection_name_for_path(indexed_root)
+        metadata_store.register_repository(indexed_root, collection_name)
+
+    # If searching a subdirectory, build a path prefix filter
+    path_prefix_filter = None
+    if search_path_abs != indexed_root:
+        # Normalize to forward slashes for consistent matching
+        path_prefix_filter = search_path_abs.replace("\\", "/")
 
     # Use config defaults if not specified
     if limit is None:
@@ -147,16 +153,26 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
                      f"Valid types: {', '.join(sorted(valid_artifact_types))}"
             )]
 
+    # Request more results if filtering by subdirectory (to ensure enough after filtering)
+    fetch_limit = limit * 3 if path_prefix_filter else limit
+
     # Pass collection_name explicitly to avoid shared state mutation
     results = await search_service.search(
         query=query,
-        limit=limit,
+        limit=fetch_limit,
         file_filter=file_filter,
         use_rerank=use_rerank,
         search_mode=search_mode,
         collection_name=collection_name,
         artifact_types=artifact_types,
     )
+
+    # Filter results to subdirectory if searching in a subdirectory
+    if path_prefix_filter and results:
+        results = [
+            r for r in results
+            if r.file_path.replace("\\", "/").startswith(path_prefix_filter)
+        ][:limit]
 
     if not results:
         return [TextContent(type="text", text="No results found.")]

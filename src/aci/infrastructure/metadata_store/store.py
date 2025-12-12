@@ -240,6 +240,32 @@ class IndexMetadataStore:
         info = self.get_index_info(root_path)
         return info.get("collection_name") if info else None
 
+    def find_parent_index(self, path: str) -> Optional[Dict]:
+        """Find an indexed repository that contains the given path.
+        
+        If path itself is indexed, returns that. Otherwise walks up the
+        directory tree to find a parent that was indexed.
+        
+        Returns:
+            Index info dict if found, None otherwise.
+        """
+        from pathlib import Path
+        
+        # First check exact match
+        info = self.get_index_info(path)
+        if info is not None:
+            return info
+        
+        # Walk up parent directories
+        current = Path(path).resolve()
+        for parent in current.parents:
+            parent_str = str(parent)
+            info = self.get_index_info(parent_str)
+            if info is not None:
+                return info
+        
+        return None
+
     # ─────────────────────────────────────────────────────────────────
     # Pending Batch Operations
     # ─────────────────────────────────────────────────────────────────
