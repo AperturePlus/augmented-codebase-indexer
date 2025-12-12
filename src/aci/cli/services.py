@@ -12,6 +12,7 @@ from typing import Optional
 from aci.core.chunker import Chunker, create_chunker
 from aci.core.config import ACIConfig, load_config
 from aci.core.file_scanner import FileScanner
+from aci.core.summary_generator import SummaryGenerator
 from aci.core.qdrant_launcher import ensure_qdrant_running
 from aci.infrastructure import (
     EmbeddingClientInterface,
@@ -113,10 +114,14 @@ def create_services(
         ignore_patterns=config.indexing.ignore_patterns,
     )
 
+    # Create summary generator for multi-granularity indexing
+    summary_generator = SummaryGenerator()
+
     # Create chunker with config-driven settings
     chunker = create_chunker(
         max_tokens=config.indexing.max_chunk_tokens,
         overlap_lines=config.indexing.chunk_overlap_lines,
+        summary_generator=summary_generator,
     )
 
     # Create reranker if enabled

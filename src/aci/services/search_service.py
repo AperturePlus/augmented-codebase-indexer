@@ -131,7 +131,25 @@ class SearchService:
         artifact_types: Optional[List[str]] = None,
     ) -> tuple[List[SearchResult], List[SearchResult]]:
         """Dispatch search based on mode."""
+        # Handle SUMMARY mode: vector-only with summary artifact types
+        if search_mode == SearchMode.SUMMARY:
+            summary_types = ["function_summary", "class_summary", "file_summary"]
+            results = await self._execute_vector_search(
+                query, file_filter, will_rerank, collection_name, summary_types
+            )
+            return results, []
+
         if search_mode == SearchMode.HYBRID:
+            # Skip grep if artifact_types is specified and doesn't contain "chunk"
+            # Grep operates on raw file content and cannot filter by artifact type
+            if artifact_types is not None and "chunk" not in artifact_types:
+                logger.debug(
+                    "Skipping grep search: artifact_types filter specified without 'chunk'"
+                )
+                results = await self._execute_vector_search(
+                    query, file_filter, will_rerank, collection_name, artifact_types
+                )
+                return results, []
             return await self._execute_hybrid_search(
                 query, file_filter, will_rerank, collection_name, artifact_types
             )

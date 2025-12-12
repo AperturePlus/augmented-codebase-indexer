@@ -17,6 +17,7 @@ class SearchMode(str, Enum):
     HYBRID = "hybrid"
     VECTOR = "vector"
     GREP = "grep"
+    SUMMARY = "summary"
 
 
 class RerankerInterface(ABC):

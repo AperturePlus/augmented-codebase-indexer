@@ -338,3 +338,155 @@ class TestIncrementalUpdateOnlyAffectsModifiedFiles:
             if metadata_store:
                 metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def create_indexing_components_with_parallel_summaries(
+    temp_dir: Path, max_workers: int = 2, db_name: str = "metadata.db"
+):
+    """Create indexing service components with parallel processing and summary generation."""
+    vector_store = InMemoryVectorStore()
+    embedding_client = LocalEmbeddingClient()
+    metadata_store = IndexMetadataStore(temp_dir / db_name)
+    file_scanner = FileScanner(extensions={".py"})
+    
+    # Create chunker with summary generator
+    tokenizer = TiktokenTokenizer()
+    summary_generator = SummaryGenerator(tokenizer)
+    chunker = Chunker(
+        tokenizer=tokenizer,
+        summary_generator=summary_generator,
+    )
+
+    service = IndexingService(
+        embedding_client=embedding_client,
+        vector_store=vector_store,
+        metadata_store=metadata_store,
+        file_scanner=file_scanner,
+        chunker=chunker,
+        max_workers=max_workers,  # Parallel processing
+    )
+    return service, vector_store, metadata_store
+
+
+class TestParallelIndexingGeneratesSummaries:
+    """
+    **Feature: hybrid-search-modes, Property 10: Parallel indexing generates summaries**
+    **Validates: Requirements 5.1, 5.4**
+
+    *For any* indexing operation with max_workers > 1 and a SummaryGenerator
+    configured, the IndexingResult SHALL contain summary artifacts for
+    processed files.
+    """
+
+    @given(
+        file_content=python_file_with_functions(),
+    )
+    @settings(
+        max_examples=100,
+        deadline=60000,
+    )
+    def test_parallel_indexing_generates_summaries(self, file_content):
+        """
+        Parallel indexing should generate summaries in post-processing.
+        
+        Property: For any indexing operation with max_workers > 1 and a
+        SummaryGenerator configured, the IndexingResult SHALL contain
+        summary artifacts for processed files.
+        """
+        temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
+        try:
+            # Create service with parallel processing (max_workers=2)
+            service, vector_store, metadata_store = create_indexing_components_with_parallel_summaries(
+                temp_dir, max_workers=2
+            )
+
+            # Create test file
+            test_file = create_test_file(temp_dir, "module.py", file_content)
+            file_path = str(test_file)
+
+            # Index with parallel processing
+            result = run_async(service.index_directory(temp_dir))
+
+            # Verify file was processed
+            assert result.total_files == 1, f"Expected 1 file, got {result.total_files}"
+
+            # Get summaries for the file
+            summaries = get_summary_artifacts_for_file(vector_store, file_path)
+
+            # Property verification: File should have summaries
+            # Each file with functions should have at least:
+            # - function_summary for each function
+            # - file_summary for the file
+            assert len(summaries) >= 1, (
+                f"File should have at least 1 summary artifact, got {len(summaries)}"
+            )
+
+            # Verify summary types are correct
+            summary_types = {s[1] for s in summaries}
+            
+            valid_summary_types = {
+                ArtifactType.FUNCTION_SUMMARY.value,
+                ArtifactType.CLASS_SUMMARY.value,
+                ArtifactType.FILE_SUMMARY.value,
+            }
+            
+            assert summary_types.issubset(valid_summary_types), (
+                f"Summary types should be valid: {summary_types}"
+            )
+
+            # Verify file summary exists
+            assert ArtifactType.FILE_SUMMARY.value in summary_types, (
+                f"File should have a file_summary, got types: {summary_types}"
+            )
+
+        finally:
+            if metadata_store:
+                metadata_store.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @given(
+        file_content=python_file_with_class(),
+    )
+    @settings(
+        max_examples=100,
+        deadline=60000,
+    )
+    def test_parallel_indexing_generates_class_summaries(self, file_content):
+        """
+        Parallel indexing should generate class summaries.
+        
+        Property: For any file with a class, parallel indexing with
+        SummaryGenerator should produce class_summary artifacts.
+        """
+        temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
+        try:
+            # Create service with parallel processing
+            service, vector_store, metadata_store = create_indexing_components_with_parallel_summaries(
+                temp_dir, max_workers=2
+            )
+
+            # Create file with class
+            test_file = create_test_file(temp_dir, "class_module.py", file_content)
+            file_path = str(test_file)
+
+            # Index with parallel processing
+            result = run_async(service.index_directory(temp_dir))
+
+            # Verify file was processed
+            assert result.total_files == 1
+
+            # Get summaries for the file
+            summaries = get_summary_artifacts_for_file(vector_store, file_path)
+            summary_types = {s[1] for s in summaries}
+
+            # Property verification: Should have class_summary
+            assert ArtifactType.CLASS_SUMMARY.value in summary_types, (
+                f"File with class should have class_summary, got types: {summary_types}"
+            )
+
+        finally:
+            if metadata_store:
+                metadata_store.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)

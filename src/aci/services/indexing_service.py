@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-from aci.core.ast_parser import ASTParserInterface, TreeSitterParser
+from aci.core.ast_parser import ASTNode, ASTParserInterface, TreeSitterParser
 from aci.core.chunker import Chunker, ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
@@ -257,12 +257,15 @@ class IndexingService:
         (parsing and chunking). Workers are initialized with shared
         parser/chunker instances to avoid overhead.
         
-        Note: Parallel workers do not generate summaries. Summary generation
-        requires SummaryGenerator which is not available in worker processes.
-        For summary generation, use sequential processing (max_workers=1).
+        After parallel chunk processing completes, summary generation is
+        performed in the main process as a post-processing step. This is
+        necessary because SummaryGenerator cannot be serialized across
+        process boundaries.
         """
         all_chunks: List[CodeChunk] = []
-        all_summaries: List[SummaryArtifact] = []  # Empty for parallel processing
+        all_summaries: List[SummaryArtifact] = []
+        # Track successfully processed files for post-processing summary generation
+        successfully_processed_files: List[ScannedFile] = []
         loop = asyncio.get_running_loop()
         
         try:
@@ -308,6 +311,8 @@ class IndexingService:
                             ]
                             all_chunks.extend(chunks)
                             result.total_files += 1
+                            # Track successfully processed file for summary generation
+                            successfully_processed_files.append(scanned_file)
                             
                             for chunk in chunks:
                                 chunk.metadata["_pending_file_info"] = {
@@ -335,6 +340,10 @@ class IndexingService:
                 exc,
             )
             return await self._process_files_sequential(files, result, total_files)
+
+        # Post-processing: Generate summaries for successfully processed files
+        # This runs in the main process since SummaryGenerator is not serializable
+        all_summaries = self._generate_summaries_for_files(successfully_processed_files)
 
         return all_chunks, all_summaries, result
 
@@ -406,6 +415,162 @@ class IndexingService:
                 error=str(e),
             )
 
+    def _generate_summaries_for_files(
+        self, files: List[ScannedFile]
+    ) -> List[SummaryArtifact]:
+        """
+        Generate summaries for a list of files in post-processing.
+        
+        This method is used after parallel chunk processing to generate
+        summary artifacts. It re-parses AST nodes and invokes the chunker's
+        summary generator for each file.
+        
+        Args:
+            files: List of successfully processed ScannedFile objects
+            
+        Returns:
+            List of SummaryArtifact objects generated from all files
+        """
+        all_summaries: List[SummaryArtifact] = []
+        
+        # Check if chunker has a summary generator
+        if not hasattr(self._chunker, "_summary_generator"):
+            return all_summaries
+        
+        summary_generator = getattr(self._chunker, "_summary_generator", None)
+        if summary_generator is None:
+            return all_summaries
+        
+        logger.debug(
+            f"Generating summaries for {len(files)} files in post-processing"
+        )
+        
+        for scanned_file in files:
+            try:
+                file_summaries = self._generate_summaries_for_single_file(
+                    scanned_file, summary_generator
+                )
+                all_summaries.extend(file_summaries)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate summaries for {scanned_file.path}: {e}"
+                )
+                # Continue processing other files
+        
+        logger.debug(f"Generated {len(all_summaries)} summaries in post-processing")
+        return all_summaries
+
+    def _generate_summaries_for_single_file(
+        self,
+        scanned_file: ScannedFile,
+        summary_generator: "SummaryGeneratorInterface",
+    ) -> List[SummaryArtifact]:
+        """
+        Generate summaries for a single file.
+        
+        Re-parses AST nodes and generates function, class, and file summaries.
+        
+        Args:
+            scanned_file: The file to generate summaries for
+            summary_generator: The summary generator to use
+            
+        Returns:
+            List of SummaryArtifact objects for this file
+        """
+        from aci.core.summary_generator import SummaryGeneratorInterface
+        
+        summaries: List[SummaryArtifact] = []
+        file_path = str(scanned_file.path)
+        
+        # Parse AST nodes
+        ast_nodes = []
+        if self._ast_parser.supports_language(scanned_file.language):
+            ast_nodes = self._ast_parser.parse(
+                scanned_file.content, scanned_file.language
+            )
+        
+        # Extract imports for file summary
+        imports = self._extract_imports_for_summary(
+            scanned_file.content, scanned_file.language
+        )
+        
+        # Group methods by parent class for class summary generation
+        class_methods: dict[str, List[ASTNode]] = {}
+        for node in ast_nodes:
+            if node.node_type == "method" and node.parent_name:
+                if node.parent_name not in class_methods:
+                    class_methods[node.parent_name] = []
+                class_methods[node.parent_name].append(node)
+        
+        # Generate summaries for each node
+        for node in ast_nodes:
+            if node.node_type == "function":
+                try:
+                    summary = summary_generator.generate_function_summary(
+                        node, file_path
+                    )
+                    summaries.append(summary)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate function summary for {node.name}: {e}"
+                    )
+            elif node.node_type == "method":
+                try:
+                    summary = summary_generator.generate_function_summary(
+                        node, file_path
+                    )
+                    summaries.append(summary)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate method summary for {node.name}: {e}"
+                    )
+            elif node.node_type == "class":
+                try:
+                    methods = class_methods.get(node.name, [])
+                    summary = summary_generator.generate_class_summary(
+                        node, methods, file_path
+                    )
+                    summaries.append(summary)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate class summary for {node.name}: {e}"
+                    )
+        
+        # Generate file summary
+        try:
+            file_summary = summary_generator.generate_file_summary(
+                file_path=file_path,
+                language=scanned_file.language,
+                imports=imports,
+                nodes=ast_nodes,
+            )
+            summaries.append(file_summary)
+        except Exception as e:
+            logger.warning(f"Failed to generate file summary for {file_path}: {e}")
+        
+        return summaries
+
+    def _extract_imports_for_summary(
+        self, content: str, language: str
+    ) -> List[str]:
+        """
+        Extract imports from file content for summary generation.
+        
+        Uses the chunker's import registry if available, otherwise returns
+        an empty list.
+        
+        Args:
+            content: File content
+            language: Programming language
+            
+        Returns:
+            List of import statements
+        """
+        if hasattr(self._chunker, "_import_registry"):
+            import_registry = getattr(self._chunker, "_import_registry", None)
+            if import_registry is not None:
+                return import_registry.extract_imports(content, language)
+        return []
 
     async def _embed_and_store_chunks(
         self,

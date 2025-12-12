@@ -564,11 +564,45 @@ class GoImportExtractor(ImportExtractorInterface):
                 if stripped == ")":
                     break
                 elif stripped and not stripped.startswith("//"):
-                    imports.append(stripped.strip('"'))
+                    import_path = self._extract_package_path(stripped)
+                    if import_path:
+                        imports.append(import_path)
             elif stripped.startswith("import "):
-                import_path = stripped.replace("import ", "").strip().strip('"')
-                imports.append(import_path)
+                remainder = stripped[7:].strip()  # Remove "import "
+                import_path = self._extract_package_path(remainder)
+                if import_path:
+                    imports.append(import_path)
         return imports
+
+    def _extract_package_path(self, import_spec: str) -> str:
+        """
+        Extract the package path from an import specification.
+        
+        Handles:
+        - Simple imports: "fmt" -> fmt
+        - Aliased imports: f "fmt" -> fmt
+        - Dot imports: . "fmt" -> fmt
+        - Blank imports: _ "fmt" -> fmt
+        
+        Args:
+            import_spec: The import specification (may include alias)
+            
+        Returns:
+            The package path without quotes, or empty string if invalid
+        """
+        # Find the quoted package path
+        first_quote = import_spec.find('"')
+        if first_quote == -1:
+            # No quotes - might be malformed, return stripped version
+            return import_spec.strip()
+        
+        last_quote = import_spec.rfind('"')
+        if last_quote <= first_quote:
+            # Only one quote - malformed
+            return ""
+        
+        # Extract the path between quotes
+        return import_spec[first_quote + 1:last_quote]
 
 
 class NullImportExtractor(ImportExtractorInterface):
