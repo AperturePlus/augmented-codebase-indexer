@@ -21,23 +21,15 @@ from rich.progress import (
 from rich.syntax import Syntax
 from rich.table import Table
 
-from aci.core.chunker import create_chunker
-from aci.core.config import load_config
-from aci.core.file_scanner import FileScanner
-from aci.core.summary_generator import SummaryGenerator
 from aci.core.path_utils import validate_indexable_path
-from aci.core.qdrant_launcher import ensure_qdrant_running
-from aci.infrastructure import (
-    GrepSearcher,
-    IndexMetadataStore,
-    create_embedding_client,
-    create_metadata_store,
-    create_vector_store,
-)
-from aci.services import IndexingService, SearchMode, SearchService
-from aci.services.reranker import (
-    OpenAICompatibleReranker,
-    SimpleReranker,
+from aci.infrastructure import GrepSearcher
+from aci.services import (
+    IndexingService,
+    SearchMode,
+    SearchService,
+    ServicesContainer,
+    create_services,
+    resolve_repository,
 )
 
 # Initialize Rich Console
@@ -50,70 +42,26 @@ app = typer.Typer(
 )
 
 def get_services():
-    """Initialize services from .env with config-driven settings."""
-    config = load_config()
+    """
+    Initialize services from .env with config-driven settings.
 
-    # Best-effort auto-start of Qdrant on the configured port
-    ensure_qdrant_running(port=config.vector_store.port)
+    This is a backward-compatible wrapper around create_services() from
+    aci.services.container. Returns a tuple for compatibility with existing
+    code that unpacks the result.
 
-    embedding_client = create_embedding_client(
-        api_url=config.embedding.api_url,
-        api_key=config.embedding.api_key,
-        model=config.embedding.model,
-        batch_size=config.embedding.batch_size,
-        max_retries=config.embedding.max_retries,
-        timeout=config.embedding.timeout,
-        dimension=config.embedding.dimension,
-    )
-
-    vector_store = create_vector_store(
-        host=config.vector_store.host,
-        port=config.vector_store.port,
-        collection_name=config.vector_store.collection_name,
-        vector_size=config.vector_store.vector_size,
-    )
-
-    # Use default metadata store path
-    metadata_store = create_metadata_store(Path(".aci/index.db"))
-
-    # Create file scanner with config-driven settings (Req 1.1, 7.1, 7.2)
-    file_scanner = FileScanner(
-        extensions=set(config.indexing.file_extensions),
-        ignore_patterns=config.indexing.ignore_patterns,
-    )
-
-    # Create summary generator for multi-granularity indexing
-    summary_generator = SummaryGenerator()
-
-    # Create chunker with config-driven settings (Req 2.5)
-    chunker = create_chunker(
-        max_tokens=config.indexing.max_chunk_tokens,
-        overlap_lines=config.indexing.chunk_overlap_lines,
-        summary_generator=summary_generator,
-    )
-
-    # Reranker selection based on config (prefer API-based reranker)
-    reranker = None
-    if config.search.use_rerank:
-        if config.search.rerank_api_url:
-            reranker = OpenAICompatibleReranker(
-                api_url=config.search.rerank_api_url,
-                api_key=config.search.rerank_api_key,
-                model=config.search.rerank_model,
-                timeout=config.search.rerank_timeout,
-                endpoint=config.search.rerank_endpoint,
-            )
-        else:
-            reranker = SimpleReranker()
-
+    Returns:
+        Tuple of (config, embedding_client, vector_store, metadata_store,
+                  file_scanner, chunker, reranker)
+    """
+    container = create_services()
     return (
-        config,
-        embedding_client,
-        vector_store,
-        metadata_store,
-        file_scanner,
-        chunker,
-        reranker,
+        container.config,
+        container.embedding_client,
+        container.vector_store,
+        container.metadata_store,
+        container.file_scanner,
+        container.chunker,
+        container.reranker,
     )
 
 
@@ -215,6 +163,12 @@ def search(
     path: Optional[Path] = typer.Option(
         None, "--path", "-p", help="Target codebase path to search"
     ),
+    mode: Optional[str] = typer.Option(
+        None,
+        "--mode",
+        "-m",
+        help="Search mode: hybrid, vector, grep, or summary (default: hybrid)",
+    ),
     rerank: Optional[bool] = typer.Option(
         None, "--rerank/--no-rerank", help="Enable/disable reranking"
     ),
@@ -243,23 +197,13 @@ def search(
 
         # Determine the search base path
         search_base = path if path is not None else Path.cwd()
-        
-        # Validate path if provided
-        if path is not None:
-            if not path.exists():
-                console.print(f"[bold red]Error:[/bold red] Path '{path}' does not exist")
-                raise typer.Exit(1)
-            if not path.is_dir():
-                console.print(f"[bold red]Error:[/bold red] Path '{path}' is not a directory")
-                raise typer.Exit(1)
-            # Check if path is indexed
-            resolved = str(path.resolve())
-            if metadata_store.get_index_info(resolved) is None:
-                console.print(
-                    f"[bold red]Error:[/bold red] Path '{path}' has not been indexed. "
-                    f"Run 'aci index {path}' first."
-                )
-                raise typer.Exit(1)
+
+        # Use centralized repository resolution for path validation and collection name
+        resolution = resolve_repository(search_base, metadata_store)
+        if not resolution.valid:
+            console.print(f"[bold red]Error:[/bold red] {resolution.error_message}")
+            raise typer.Exit(1)
+        collection_name = resolution.collection_name
 
         # Use config values if not overridden by CLI
         actual_limit = limit if limit is not None else cfg.search.default_limit
@@ -272,16 +216,6 @@ def search(
             )
             use_rerank = False
 
-        # Get collection name for this codebase (pass explicitly to search, no mutation)
-        # For backward compatibility, generate collection name if not stored
-        search_base_abs = str(search_base.resolve())
-        collection_name = metadata_store.get_collection_name(search_base_abs)
-        if not collection_name:
-            # Legacy index without collection_name - generate and update
-            from aci.core.path_utils import get_collection_name_for_path
-            collection_name = get_collection_name_for_path(search_base_abs)
-            metadata_store.register_repository(search_base_abs, collection_name)
-
         # Create GrepSearcher for hybrid search support
         grep_searcher = GrepSearcher(base_path=str(search_base))
 
@@ -292,6 +226,20 @@ def search(
             grep_searcher=grep_searcher,
             default_limit=actual_limit,
         )
+
+        # Validate and parse search mode (default to HYBRID)
+        valid_modes = {"hybrid", "vector", "grep", "summary"}
+        if mode is not None:
+            mode_lower = mode.lower()
+            if mode_lower not in valid_modes:
+                console.print(
+                    f"[bold red]Error:[/bold red] Invalid search mode: {mode}. "
+                    f"Valid modes: {', '.join(sorted(valid_modes))}"
+                )
+                raise typer.Exit(1)
+            search_mode = SearchMode(mode_lower)
+        else:
+            search_mode = SearchMode.HYBRID
 
         # Validate artifact types if provided
         valid_artifact_types = {"chunk", "function_summary", "class_summary", "file_summary"}
@@ -313,6 +261,7 @@ def search(
                     limit=actual_limit,
                     file_filter=file_filter,  # User-provided filter only
                     use_rerank=use_rerank and reranker is not None,
+                    search_mode=search_mode,  # Pass search mode
                     collection_name=collection_name,  # Pass explicitly, no state mutation
                     artifact_types=artifact_types_param,
                 )

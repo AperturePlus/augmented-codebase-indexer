@@ -9,7 +9,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 
-from aci.cli import get_services
+from aci.services.container import create_services
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.services import IndexingService, SearchService
 
@@ -39,15 +39,15 @@ def get_initialized_services():
     if _services_cache is not None:
         return _services_cache[:5]  # Return original 5-tuple for compatibility
     
-    (
-        cfg,
-        embedding_client,
-        vector_store,
-        metadata_store,
-        file_scanner,
-        chunker,
-        reranker,
-    ) = get_services()
+    # Use centralized service container
+    services = create_services()
+    cfg = services.config
+    embedding_client = services.embedding_client
+    vector_store = services.vector_store
+    metadata_store = services.metadata_store
+    file_scanner = services.file_scanner
+    chunker = services.chunker
+    reranker = services.reranker
 
     # Create GrepSearcher with base path from current directory
     grep_searcher = GrepSearcher(base_path=str(Path.cwd()))

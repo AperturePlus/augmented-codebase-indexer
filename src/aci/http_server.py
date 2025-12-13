@@ -9,11 +9,12 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from aci.cli import get_services
 from aci.core.path_utils import is_system_directory
+from aci.services.container import create_services
+from aci.services.repository_resolver import resolve_repository
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
 from aci.services import IndexingService, SearchMode, SearchService
@@ -55,15 +56,14 @@ def _to_response_item(result: SearchResult) -> SearchResponseItem:
 
 def create_app() -> FastAPI:
     """FastAPI application factory (config sourced from .env)."""
-    (
-        cfg,
-        embedding_client,
-        vector_store,
-        metadata_store,
-        file_scanner,
-        chunker,
-        reranker,
-    ) = get_services()
+    services = create_services()
+    cfg = services.config
+    embedding_client = services.embedding_client
+    vector_store = services.vector_store
+    metadata_store = services.metadata_store
+    file_scanner = services.file_scanner
+    chunker = services.chunker
+    reranker = services.reranker
 
     # Create GrepSearcher with base path from config or current directory
     grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
@@ -220,31 +220,15 @@ def create_app() -> FastAPI:
         file_filter: Optional[str] = None,
         use_rerank: Optional[bool] = None,
         mode: Optional[str] = None,
+        artifact_type: Optional[list[str]] = Query(None),
     ):
         try:
-            # Validate and resolve path
-            search_path = Path(path)
-            if not search_path.exists():
-                raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
-            if not search_path.is_dir():
-                raise HTTPException(status_code=400, detail=f"Path is not a directory: {path}")
+            # Use centralized repository resolution
+            resolution = resolve_repository(path, metadata_store)
+            if not resolution.valid:
+                raise HTTPException(status_code=400, detail=resolution.error_message)
 
-            # Check if path is indexed and get collection name
-            search_path_abs = str(search_path.resolve())
-            index_info = metadata_store.get_index_info(search_path_abs)
-            if index_info is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path has not been indexed: {path}. Run /index first.",
-                )
-
-            # Get collection name for this codebase
-            # For backward compatibility, generate collection name if not stored
-            collection_name = index_info.get("collection_name")
-            if not collection_name:
-                from aci.core.path_utils import get_collection_name_for_path
-                collection_name = get_collection_name_for_path(search_path_abs)
-                metadata_store.register_repository(search_path_abs, collection_name)
+            collection_name = resolution.collection_name
 
             apply_rerank = cfg.search.use_rerank if use_rerank is None else use_rerank
 
@@ -258,6 +242,19 @@ def create_app() -> FastAPI:
                     search_mode = SearchMode.GREP
                 elif mode_lower == "hybrid":
                     search_mode = SearchMode.HYBRID
+                elif mode_lower == "summary":
+                    search_mode = SearchMode.SUMMARY
+
+            # Validate artifact types if provided
+            valid_artifact_types = ["chunk", "function_summary", "class_summary", "file_summary"]
+            if artifact_type:
+                invalid_types = [t for t in artifact_type if t not in valid_artifact_types]
+                if invalid_types:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid artifact type(s): {invalid_types}. "
+                               f"Valid types are: {valid_artifact_types}",
+                    )
 
             # Pass collection_name explicitly to avoid shared state mutation
             results = await search_service.search(
@@ -267,6 +264,7 @@ def create_app() -> FastAPI:
                 use_rerank=apply_rerank,
                 search_mode=search_mode,
                 collection_name=collection_name,
+                artifact_types=artifact_type,
             )
             return {"results": [_to_response_item(r) for r in results]}
         except HTTPException:

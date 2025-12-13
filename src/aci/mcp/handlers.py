@@ -9,6 +9,7 @@ from mcp.types import TextContent
 from aci.core.path_utils import validate_indexable_path
 from aci.mcp.services import get_initialized_services, get_indexing_lock, MAX_WORKERS
 from aci.services import SearchMode
+from aci.services.repository_resolver import resolve_repository
 
 _HANDLERS = {}
 
@@ -99,27 +100,16 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
 
     cfg, search_service, _, metadata_store, _ = get_initialized_services()
 
-    # Validate and resolve path
-    if not search_path.exists():
-        return [TextContent(type="text", text=f"Error: Path does not exist: {search_path}")]
-    if not search_path.is_dir():
-        return [TextContent(type="text", text=f"Error: Path is not a directory: {search_path}")]
+    # Use centralized repository resolution
+    resolution = resolve_repository(search_path, metadata_store)
+    if not resolution.valid:
+        return [TextContent(type="text", text=f"Error: {resolution.error_message}")]
 
-    # Check if path (or a parent) is indexed and get collection name
-    search_path_abs = str(search_path.resolve())
-    index_info = metadata_store.find_parent_index(search_path_abs)
-    if index_info is None:
-        return [TextContent(type="text", text=f"Error: Path has not been indexed: {search_path}. Run index_codebase first.")]
-
-    # Get collection name from the found index
-    indexed_root = index_info.get("root_path", search_path_abs)
-    collection_name = index_info.get("collection_name")
-    if not collection_name:
-        from aci.core.path_utils import get_collection_name_for_path
-        collection_name = get_collection_name_for_path(indexed_root)
-        metadata_store.register_repository(indexed_root, collection_name)
+    collection_name = resolution.collection_name
+    indexed_root = resolution.indexed_root
 
     # If searching a subdirectory, build a path prefix filter
+    search_path_abs = str(search_path.resolve())
     path_prefix_filter = None
     if search_path_abs != indexed_root:
         # Normalize to forward slashes for consistent matching
