@@ -77,6 +77,13 @@ def create_indexed_search_env(temp_dir: Path, file_contents: dict):
 
     # Index the directory
     run_async(indexing_service.index_directory(temp_dir))
+    # For tests, set the vector store's default collection to the indexed repo
+    # so callers that omit collection_name still search the indexed data.
+    from aci.core.path_utils import get_collection_name_for_path
+
+    collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
+    if hasattr(vector_store, "set_collection"):
+        vector_store.set_collection(collection_name)
 
     # Create search service
     search_service = SearchService(

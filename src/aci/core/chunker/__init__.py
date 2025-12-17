@@ -14,13 +14,14 @@ from .import_extractors import (
     PythonImportExtractor,
     get_import_registry,
 )
-from .interfaces import ChunkerInterface, ImportExtractorInterface
+from .interfaces import ChunkerConfig, ChunkerInterface, ImportExtractorInterface
 from .models import ChunkingResult, CodeChunk
 from .smart_splitter import SmartChunkSplitter
 
 __all__ = [
     # Main classes
     "Chunker",
+    "ChunkerConfig",
     "ChunkerInterface",
     "CodeChunk",
     "ChunkingResult",

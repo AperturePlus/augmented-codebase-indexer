@@ -1,8 +1,9 @@
 """Property-based tests for MCP path validation and system directory rejection."""
 
+import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from hypothesis import given, settings
 
@@ -15,6 +16,33 @@ from tests.mcp_path_security_strategies import (
 )
 
 
+def _create_mock_context(
+    indexing_service=None,
+    metadata_store=None,
+):
+    """Create a mock MCPContext for testing."""
+    from aci.core.config import ACIConfig
+    from aci.mcp.context import MCPContext
+
+    # Create a real config for proper nested attribute access
+    mock_cfg = ACIConfig()
+
+    if indexing_service is None:
+        indexing_service = MagicMock()
+
+    if metadata_store is None:
+        metadata_store = MagicMock()
+
+    return MCPContext(
+        config=mock_cfg,
+        search_service=MagicMock(),
+        indexing_service=indexing_service,
+        metadata_store=metadata_store,
+        vector_store=MagicMock(),
+        indexing_lock=asyncio.Lock(),
+    )
+
+
 class TestMCPPathValidationConsistency:
     """
     **Feature: mcp-path-security, Property 1: MCP Path Validation Consistency**
@@ -25,7 +53,6 @@ class TestMCPPathValidationConsistency:
     @given(dirname=valid_directory_names())
     def test_index_codebase_validates_before_indexing(self, dirname: str):
         """For valid paths, index_codebase should validate and then attempt indexing."""
-        from unittest.mock import AsyncMock
         from aci.mcp.handlers import _handle_index_codebase
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -33,22 +60,20 @@ class TestMCPPathValidationConsistency:
             test_path.mkdir(exist_ok=True)
 
             mock_indexing_service = MagicMock()
-            mock_result = MagicMock(total_files=0, total_chunks=0, duration_seconds=0.1, failed_files=[])
+            mock_result = MagicMock(
+                total_files=0, total_chunks=0, duration_seconds=0.1, failed_files=[]
+            )
             mock_indexing_service.index_directory = AsyncMock(return_value=mock_result)
 
-            with patch("aci.mcp.handlers.get_initialized_services") as mock_services:
-                mock_cfg = MagicMock()
-                mock_cfg.indexing.max_workers = 4
-                mock_services.return_value = (mock_cfg, None, mock_indexing_service, None, None)
+            ctx = _create_mock_context(indexing_service=mock_indexing_service)
 
-                result = run_async(_handle_index_codebase({"path": str(test_path)}))
-                assert mock_indexing_service.index_directory.called
+            result = run_async(_handle_index_codebase({"path": str(test_path)}, ctx))
+            assert mock_indexing_service.index_directory.called
 
     @settings(max_examples=100, deadline=None)
     @given(dirname=valid_directory_names())
     def test_update_index_validates_before_updating(self, dirname: str):
         """For valid paths, update_index should validate and then attempt update."""
-        from unittest.mock import AsyncMock
         from aci.mcp.handlers import _handle_update_index
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -56,18 +81,22 @@ class TestMCPPathValidationConsistency:
             test_path.mkdir(exist_ok=True)
 
             mock_indexing_service = MagicMock()
-            mock_result = MagicMock(new_files=0, modified_files=0, deleted_files=0, duration_seconds=0.1)
+            mock_result = MagicMock(
+                new_files=0, modified_files=0, deleted_files=0, duration_seconds=0.1
+            )
             mock_indexing_service.update_incremental = AsyncMock(return_value=mock_result)
+
             mock_metadata_store = MagicMock()
             mock_metadata_store.get_index_info.return_value = {"root_path": str(test_path)}
             mock_metadata_store.get_all_file_hashes.return_value = {"dummy": "hash"}
 
-            with patch("aci.mcp.handlers.get_initialized_services") as mock_services:
-                mock_cfg = MagicMock()
-                mock_services.return_value = (mock_cfg, mock_metadata_store, mock_indexing_service, mock_metadata_store, None)
+            ctx = _create_mock_context(
+                indexing_service=mock_indexing_service,
+                metadata_store=mock_metadata_store,
+            )
 
-                result = run_async(_handle_update_index({"path": str(test_path)}))
-                assert mock_indexing_service.update_incremental.called
+            result = run_async(_handle_update_index({"path": str(test_path)}, ctx))
+            assert mock_indexing_service.update_incremental.called
 
     @settings(max_examples=100, deadline=None)
     @given(dirname=valid_directory_names())
@@ -78,15 +107,13 @@ class TestMCPPathValidationConsistency:
         nonexistent_path = f"/nonexistent/{dirname}/path"
         mock_indexing_service = MagicMock()
 
-        with patch("aci.mcp.handlers.get_initialized_services") as mock_services:
-            mock_cfg = MagicMock()
-            mock_services.return_value = (mock_cfg, None, mock_indexing_service, None, None)
+        ctx = _create_mock_context(indexing_service=mock_indexing_service)
 
-            result = run_async(_handle_index_codebase({"path": nonexistent_path}))
+        result = run_async(_handle_index_codebase({"path": nonexistent_path}, ctx))
 
-            assert not mock_indexing_service.index_directory.called
-            assert len(result) == 1
-            assert "Error" in result[0].text
+        assert not mock_indexing_service.index_directory.called
+        assert len(result) == 1
+        assert "Error" in result[0].text
 
     @settings(max_examples=100, deadline=None)
     @given(dirname=valid_directory_names())
@@ -97,15 +124,13 @@ class TestMCPPathValidationConsistency:
         nonexistent_path = f"/nonexistent/{dirname}/path"
         mock_indexing_service = MagicMock()
 
-        with patch("aci.mcp.handlers.get_initialized_services") as mock_services:
-            mock_cfg = MagicMock()
-            mock_services.return_value = (mock_cfg, None, mock_indexing_service, None, None)
+        ctx = _create_mock_context(indexing_service=mock_indexing_service)
 
-            result = run_async(_handle_update_index({"path": nonexistent_path}))
+        result = run_async(_handle_update_index({"path": nonexistent_path}, ctx))
 
-            assert not mock_indexing_service.update_incremental.called
-            assert len(result) == 1
-            assert "Error" in result[0].text
+        assert not mock_indexing_service.update_incremental.called
+        assert len(result) == 1
+        assert "Error" in result[0].text
 
 
 class TestSystemDirectoryRejection:
@@ -154,8 +179,10 @@ class TestSystemDirectoryRejection:
             test_path = Path(tmpdir) / dirname
             test_path.mkdir(exist_ok=True)
 
+            ctx = _create_mock_context()
+
             with patch("aci.core.path_utils.is_system_directory", return_value=True):
-                result = run_async(_handle_index_codebase({"path": str(test_path)}))
+                result = run_async(_handle_index_codebase({"path": str(test_path)}, ctx))
 
                 assert len(result) == 1
                 error_text = result[0].text

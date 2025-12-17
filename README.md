@@ -92,7 +92,7 @@ This launches an interactive REPL (Read-Eval-Print Loop) with:
 | `search <query>` | Search the indexed codebase (supports modifiers) |
 | `status` | Show index status and statistics |
 | `update <path>` | Incrementally update the index |
-| `list` | List all indexed repositories |
+| `list` | List indexed repositories (use `aci list --global` to list from the global registry) |
 | `reset` | Clear the index (requires confirmation) |
 | `help` or `?` | Display available commands |
 | `exit`, `quit`, or `q` | Exit the shell |
@@ -266,5 +266,4 @@ See `.env.example` for the full list of options.
 
 The CLI and HTTP server will attempt to auto-start a local Qdrant Docker container on port `6333`
 if one is not already running.
-
 

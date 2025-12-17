@@ -32,6 +32,11 @@ class IndexMetadataStore:
         self._query: Optional[MetadataQueryExecutor] = None
         self._initialized = False
 
+    @property
+    def db_path(self) -> Path:
+        """Return the configured database path (may be relative or ':memory:')."""
+        return self._db_path
+
     def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection."""
         if self._conn is None:

@@ -1,5 +1,6 @@
 """Property-based tests for MCP path security error message handling."""
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,51 @@ from unittest.mock import patch
 from hypothesis import given, settings, strategies as st
 
 from tests.mcp_path_security_strategies import run_async, valid_directory_names
+
+
+def _create_mock_context():
+    """Create a minimal MCPContext for testing error paths."""
+    from aci.core.config import ACIConfig
+    from aci.core.chunker import create_chunker
+    from aci.core.file_scanner import FileScanner
+    from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
+    from aci.infrastructure.metadata_store import IndexMetadataStore
+    from aci.mcp.context import MCPContext
+    from aci.services import IndexingService, SearchService
+
+    config = ACIConfig()
+    embedding_client = LocalEmbeddingClient()
+    vector_store = InMemoryVectorStore()
+    metadata_store = IndexMetadataStore(":memory:")
+    file_scanner = FileScanner(extensions={".py"})
+    chunker = create_chunker()
+
+    search_service = SearchService(
+        embedding_client=embedding_client,
+        vector_store=vector_store,
+        reranker=None,
+        grep_searcher=None,
+        default_limit=10,
+    )
+
+    indexing_service = IndexingService(
+        embedding_client=embedding_client,
+        vector_store=vector_store,
+        metadata_store=metadata_store,
+        file_scanner=file_scanner,
+        chunker=chunker,
+        batch_size=32,
+        max_workers=1,
+    )
+
+    return MCPContext(
+        config=config,
+        search_service=search_service,
+        indexing_service=indexing_service,
+        metadata_store=metadata_store,
+        vector_store=vector_store,
+        indexing_lock=asyncio.Lock(),
+    )
 
 
 class TestErrorMessagePathInclusion:
@@ -22,13 +68,14 @@ class TestErrorMessagePathInclusion:
         from aci.mcp.handlers import _handle_index_codebase, _handle_update_index
 
         nonexistent_path = f"/nonexistent_test_dir_{dirname}/subdir"
+        ctx = _create_mock_context()
 
-        result = run_async(_handle_index_codebase({"path": nonexistent_path}))
+        result = run_async(_handle_index_codebase({"path": nonexistent_path}, ctx))
         assert len(result) == 1
         error_text = result[0].text
         assert "Error" in error_text and nonexistent_path in error_text and "does not exist" in error_text
 
-        result = run_async(_handle_update_index({"path": nonexistent_path}))
+        result = run_async(_handle_update_index({"path": nonexistent_path}, ctx))
         assert len(result) == 1
         error_text = result[0].text
         assert "Error" in error_text and nonexistent_path in error_text and "does not exist" in error_text
@@ -45,17 +92,19 @@ class TestErrorMessagePathInclusion:
         """File paths (not directories) should be rejected with a helpful message."""
         from aci.mcp.handlers import _handle_index_codebase, _handle_update_index
 
+        ctx = _create_mock_context()
+
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / f"file_{filename}.txt"
             file_path.write_text("test content")
             file_path_str = str(file_path)
 
-            result = run_async(_handle_index_codebase({"path": file_path_str}))
+            result = run_async(_handle_index_codebase({"path": file_path_str}, ctx))
             assert len(result) == 1
             error_text = result[0].text
             assert "Error" in error_text and file_path_str in error_text and "not a directory" in error_text
 
-            result = run_async(_handle_update_index({"path": file_path_str}))
+            result = run_async(_handle_update_index({"path": file_path_str}, ctx))
             assert len(result) == 1
             error_text = result[0].text
             assert "Error" in error_text and file_path_str in error_text and "not a directory" in error_text
@@ -66,19 +115,21 @@ class TestErrorMessagePathInclusion:
         """System directories should be rejected and include path + forbidden text."""
         from aci.mcp.handlers import _handle_index_codebase, _handle_update_index
 
+        ctx = _create_mock_context()
+
         with tempfile.TemporaryDirectory() as tmpdir:
             test_path = Path(tmpdir) / dirname
             test_path.mkdir(exist_ok=True)
             test_path_str = str(test_path)
 
             with patch("aci.core.path_utils.is_system_directory", return_value=True):
-                result = run_async(_handle_index_codebase({"path": test_path_str}))
+                result = run_async(_handle_index_codebase({"path": test_path_str}, ctx))
                 assert len(result) == 1
                 error_text = result[0].text
                 assert "Error" in error_text and test_path_str in error_text
                 assert "forbidden" in error_text.lower()
 
-                result = run_async(_handle_update_index({"path": test_path_str}))
+                result = run_async(_handle_update_index({"path": test_path_str}, ctx))
                 assert len(result) == 1
                 error_text = result[0].text
                 assert "Error" in error_text and test_path_str in error_text
@@ -88,10 +139,11 @@ class TestErrorMessagePathInclusion:
         """Error messages should follow the expected format with path included."""
         from aci.mcp.handlers import _handle_index_codebase
 
+        ctx = _create_mock_context()
         test_cases = ["/nonexistent/path/xyz"]
 
         for path in test_cases:
-            result = run_async(_handle_index_codebase({"path": path}))
+            result = run_async(_handle_index_codebase({"path": path}, ctx))
             assert len(result) == 1
             error_text = result[0].text
             assert error_text.startswith("Error:")

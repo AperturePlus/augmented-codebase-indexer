@@ -6,9 +6,21 @@ Usage: uv run python tests/test_mcp_call/test_stdio.py
 
 import asyncio
 import json
+import os
 import sys
+
+import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+
+pytestmark = pytest.mark.integration
+
+if os.environ.get("ACI_RUN_MCP_INTEGRATION_TESTS") != "1":
+    pytest.skip(
+        "MCP stdio integration test disabled by default; set ACI_RUN_MCP_INTEGRATION_TESTS=1 to run.",
+        allow_module_level=True,
+    )
 
 
 async def test_mcp_stdio():
@@ -51,7 +63,6 @@ async def test_mcp_stdio():
             
             # Test update_index on current codebase
             print("\n=== Testing update_index ===")
-            import os
             codebase_path = os.getcwd()
             print(f"Updating index for: {codebase_path}")
             result = await session.call_tool("update_index", {"path": codebase_path})

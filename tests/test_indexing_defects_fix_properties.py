@@ -68,7 +68,13 @@ class TrackingVectorStore:
         self.upserted_chunks: List[str] = []
         self.upsert_count = 0
 
-    async def upsert(self, chunk_id: str, vector: List[float], payload: dict) -> None:
+    async def upsert(
+        self,
+        chunk_id: str,
+        vector: List[float],
+        payload: dict,
+        collection_name: str | None = None,
+    ) -> None:
         self.upserted_chunks.append(chunk_id)
         self.upsert_count += 1
 
@@ -78,10 +84,10 @@ class TrackingVectorStore:
     async def get_all_file_paths(self, collection_name=None):
         return []
 
-    async def delete_by_file(self, file_path: str) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: str | None = None) -> int:
         return 0
 
-    async def get_stats(self):
+    async def get_stats(self, collection_name: str | None = None):
         return {"total_vectors": 0}
 
     def set_collection(self, name: str):

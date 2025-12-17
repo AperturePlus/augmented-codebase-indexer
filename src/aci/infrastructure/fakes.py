@@ -39,26 +39,38 @@ class InMemoryVectorStore(VectorStoreInterface):
         self._vectors: Dict[str, List[float]] = {}
         self._payloads: Dict[str, dict] = {}
 
-    async def upsert(self, chunk_id: str, vector: List[float], payload: dict) -> None:
+    async def upsert(
+        self,
+        chunk_id: str,
+        vector: List[float],
+        payload: dict,
+        collection_name: Optional[str] = None,
+    ) -> None:
         """Insert or update a vector with its payload."""
+        target_collection = collection_name or self._collection_name
         # Ensure artifact_type is set, default to "chunk" for backward compatibility
         if "artifact_type" not in payload:
             payload = {**payload, "artifact_type": "chunk"}
         self._vectors[chunk_id] = vector
         self._payloads[chunk_id] = payload
         # Also store in collection-based storage
-        if self._collection_name not in self._collections:
-            self._collections[self._collection_name] = {}
-        self._collections[self._collection_name][chunk_id] = (vector, payload)
+        if target_collection not in self._collections:
+            self._collections[target_collection] = {}
+        self._collections[target_collection][chunk_id] = (vector, payload)
 
-    async def upsert_batch(self, points: List[tuple[str, List[float], dict]]) -> None:
+    async def upsert_batch(
+        self,
+        points: List[tuple[str, List[float], dict]],
+        collection_name: Optional[str] = None,
+    ) -> None:
         """Batch insert or update vectors."""
         for chunk_id, vector, payload in points:
-            await self.upsert(chunk_id, vector, payload)
+            await self.upsert(chunk_id, vector, payload, collection_name=collection_name)
 
-    async def delete_by_file(self, file_path: str) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
         """Delete all vectors for a file, return count deleted."""
-        collection_data = self._collections.get(self._collection_name, {})
+        target_collection = collection_name or self._collection_name
+        collection_data = self._collections.get(target_collection, {})
         to_delete = [
             cid for cid, (_, payload) in collection_data.items() 
             if payload.get("file_path") == file_path

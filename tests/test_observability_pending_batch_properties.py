@@ -53,11 +53,17 @@ class FailingVectorStore(InMemoryVectorStore):
         self._fail_after = fail_after
         self._upsert_count = 0
 
-    async def upsert(self, chunk_id: str, vector, payload: dict) -> None:
+    async def upsert(
+        self,
+        chunk_id: str,
+        vector,
+        payload: dict,
+        collection_name: str | None = None,
+    ) -> None:
         self._upsert_count += 1
         if self._upsert_count > self._fail_after:
             raise RuntimeError("Simulated Qdrant failure")
-        await super().upsert(chunk_id, vector, payload)
+        await super().upsert(chunk_id, vector, payload, collection_name=collection_name)
 
 
 @given(

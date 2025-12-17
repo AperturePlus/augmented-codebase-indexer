@@ -24,7 +24,11 @@ from rich.progress import (
 from rich.table import Table
 
 from aci.cli.ui import render_error
-from aci.core.path_utils import validate_indexable_path
+from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
+from aci.infrastructure.codebase_registry import (
+    best_effort_remove_from_registry,
+    best_effort_update_registry,
+)
 
 if TYPE_CHECKING:
     from aci.cli.repl.event_loop import EventLoopManager
@@ -96,6 +100,14 @@ class IndexingOperations:
                 f"[green]✓[/green] Indexed {idx_result.total_files} files, "
                 f"{idx_result.total_chunks} chunks in {idx_result.duration_seconds:.2f}s"
             )
+            try:
+                best_effort_update_registry(
+                    root_path=Path(path),
+                    metadata_db_path=getattr(self.services.metadata_store, "db_path", ".aci/index.db"),
+                    collection_name=get_collection_name_for_path(Path(path)),
+                )
+            except Exception:
+                pass
         except Exception as e:
             render_error(str(e), self.console)
 
@@ -253,6 +265,14 @@ class IndexingOperations:
                 f"{upd_result.modified_files} modified, "
                 f"{upd_result.deleted_files} deleted in {upd_result.duration_seconds:.2f}s"
             )
+            try:
+                best_effort_update_registry(
+                    root_path=Path(path),
+                    metadata_db_path=getattr(self.services.metadata_store, "db_path", ".aci/index.db"),
+                    collection_name=get_collection_name_for_path(Path(path)),
+                )
+            except Exception:
+                pass
         except Exception as e:
             render_error(str(e), self.console)
 
@@ -439,6 +459,12 @@ class IndexingOperations:
                 self.console.print(f"  [yellow]![/yellow] Failed to delete {len(failed_collections)} collection(s):")
                 for name, error in failed_collections:
                     self.console.print(f"      - {name}: {error}")
+
+            # Remove from global registry (best-effort; ignore failures)
+            for repo in repos:
+                root_path = repo.get("root_path")
+                if root_path:
+                    best_effort_remove_from_registry(root_path=root_path)
 
             # Clear metadata
             self.services.metadata_store.clear_all()

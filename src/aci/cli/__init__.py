@@ -21,8 +21,13 @@ from rich.progress import (
 from rich.syntax import Syntax
 from rich.table import Table
 
-from aci.core.path_utils import validate_indexable_path
+from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
 from aci.infrastructure import GrepSearcher
+from aci.infrastructure.codebase_registry import (
+    CodebaseRegistryStore,
+    best_effort_remove_from_registry,
+    best_effort_update_registry,
+)
 from aci.services import (
     IndexingService,
     SearchMode,
@@ -119,7 +124,12 @@ def index(
                 progress_callback=update_progress,
             )
 
-            result = asyncio.run(indexing_service.index_directory(path))
+        result = asyncio.run(indexing_service.index_directory(path))
+        best_effort_update_registry(
+            root_path=path,
+            metadata_db_path=metadata_store.db_path,
+            collection_name=get_collection_name_for_path(path),
+        )
 
         # Summary Panel
         summary = Table.grid(padding=1)
@@ -362,6 +372,11 @@ def update(
             )
 
             result = asyncio.run(indexing_service.update_incremental(path))
+            best_effort_update_registry(
+                root_path=path,
+                metadata_db_path=metadata_store.db_path,
+                collection_name=get_collection_name_for_path(path),
+            )
 
         # Summary Panel
         summary = Table.grid(padding=1)
@@ -440,6 +455,12 @@ def reset():
             for name, error in failed_collections:
                 console.print(f"      - {name}: {error}")
 
+        # Remove from global registry (best-effort; ignore failures)
+        for repo in repos:
+            root_path = repo.get("root_path")
+            if root_path:
+                best_effort_remove_from_registry(root_path=root_path)
+
         # Clear metadata
         metadata_store.clear_all()
         console.print("  [green]✓[/green] Metadata store cleared.")
@@ -452,9 +473,46 @@ def reset():
 
 
 @app.command("list")
-def list_repos():
-    """List all indexed repositories."""
+def list_repos(
+    global_registry: bool = typer.Option(
+        False,
+        "--global",
+        help="List indexed codebases from the global registry (~/.aci/registry.db) instead of the local metadata store.",
+    ),
+):
+    """List indexed repositories (local) or indexed codebases (global)."""
     try:
+        if global_registry:
+            store = CodebaseRegistryStore()
+            try:
+                records = store.list_codebases()
+            finally:
+                store.close()
+
+            if not records:
+                console.print("[yellow]No codebases in global registry.[/yellow]")
+                return
+
+            table = Table(
+                title=f"Global Indexed Codebases ({store.db_path})",
+                border_style="blue",
+            )
+            table.add_column("Root Path", style="cyan")
+            table.add_column("Collection", style="green", no_wrap=True)
+            table.add_column("Metadata DB", style="magenta")
+            table.add_column("Last Updated", style="yellow", no_wrap=True)
+
+            for rec in records:
+                table.add_row(
+                    rec.root_path,
+                    rec.collection_name,
+                    rec.metadata_db_path,
+                    str(rec.updated_at),
+                )
+
+            console.print(table)
+            return
+
         (
             cfg,
             embedding_client,

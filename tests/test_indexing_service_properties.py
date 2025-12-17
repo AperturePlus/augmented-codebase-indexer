@@ -65,6 +65,14 @@ def create_indexing_components(temp_dir: Path, db_name: str = "metadata.db"):
     metadata_store = IndexMetadataStore(temp_dir / db_name)
     file_scanner = FileScanner(extensions={".py"})
 
+    # Point default vector store operations at the repository collection so
+    # tests that omit collection_name still observe indexed data.
+    from aci.core.path_utils import get_collection_name_for_path
+
+    collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
+    if hasattr(vector_store, "set_collection"):
+        vector_store.set_collection(collection_name)
+
     service = IndexingService(
         embedding_client=embedding_client,
         vector_store=vector_store,

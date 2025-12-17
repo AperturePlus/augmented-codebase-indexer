@@ -86,6 +86,13 @@ def create_indexing_components_with_summaries(temp_dir: Path, db_name: str = "me
     embedding_client = LocalEmbeddingClient()
     metadata_store = IndexMetadataStore(temp_dir / db_name)
     file_scanner = FileScanner(extensions={".py"})
+
+    # Point default vector store operations at the repository collection so
+    # helpers that inspect the current collection see indexed artifacts.
+    from aci.core.path_utils import get_collection_name_for_path
+
+    collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
+    vector_store.set_collection(collection_name)
     
     # Create chunker with summary generator
     tokenizer = TiktokenTokenizer()
@@ -348,6 +355,13 @@ def create_indexing_components_with_parallel_summaries(
     embedding_client = LocalEmbeddingClient()
     metadata_store = IndexMetadataStore(temp_dir / db_name)
     file_scanner = FileScanner(extensions={".py"})
+
+    # Point default vector store operations at the repository collection so
+    # helpers that inspect the current collection see indexed artifacts.
+    from aci.core.path_utils import get_collection_name_for_path
+
+    collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
+    vector_store.set_collection(collection_name)
     
     # Create chunker with summary generator
     tokenizer = TiktokenTokenizer()

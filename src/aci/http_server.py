@@ -12,7 +12,8 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from aci.core.path_utils import is_system_directory
+from aci.core.path_utils import get_collection_name_for_path, is_system_directory
+from aci.infrastructure.codebase_registry import best_effort_update_registry
 from aci.services.container import create_services
 from aci.services.repository_resolver import resolve_repository
 from aci.infrastructure.grep_searcher import GrepSearcher
@@ -175,6 +176,11 @@ def create_app() -> FastAPI:
             async with _indexing_lock:
                 indexing_service._max_workers = workers
                 result = await indexing_service.index_directory(target_path)
+                best_effort_update_registry(
+                    root_path=target_path,
+                    metadata_db_path=metadata_store.db_path,
+                    collection_name=get_collection_name_for_path(target_path),
+                )
                 return result.__dict__
         except HTTPException:
             raise
@@ -205,6 +211,11 @@ def create_app() -> FastAPI:
             async with _indexing_lock:
                 indexing_service._max_workers = workers
                 result = await indexing_service.update_incremental(target_path)
+                best_effort_update_registry(
+                    root_path=target_path,
+                    metadata_db_path=metadata_store.db_path,
+                    collection_name=get_collection_name_for_path(target_path),
+                )
                 return result.__dict__
         except HTTPException:
             raise

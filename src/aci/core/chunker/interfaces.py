@@ -5,12 +5,25 @@ Contains ChunkerInterface and ImportExtractorInterface.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List
 
 from aci.core.ast_parser import ASTNode
 from aci.core.file_scanner import ScannedFile
 
 from .models import ChunkingResult
+
+
+@dataclass
+class ChunkerConfig:
+    """Configuration for chunker instances.
+    
+    Used to transfer chunker settings across process boundaries
+    (e.g., for parallel worker initialization).
+    """
+    max_tokens: int = 8192
+    fixed_chunk_lines: int = 50
+    overlap_lines: int = 5
 
 
 class ChunkerInterface(ABC):
@@ -43,6 +56,19 @@ class ChunkerInterface(ABC):
 
         Args:
             max_tokens: Maximum tokens allowed per chunk
+        """
+        pass
+
+    @abstractmethod
+    def get_config(self) -> ChunkerConfig:
+        """
+        Get the chunker configuration.
+        
+        Returns configuration values needed to recreate a chunker
+        with equivalent settings (e.g., for parallel workers).
+
+        Returns:
+            ChunkerConfig with current settings
         """
         pass
 

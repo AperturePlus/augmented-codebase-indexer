@@ -11,6 +11,7 @@ from aci.core.ast_parser import (
 )
 from aci.core.chunker import (
     Chunker,
+    ChunkerConfig,
     ChunkerInterface,
     CodeChunk,
     GoImportExtractor,
@@ -72,6 +73,7 @@ __all__ = [
     "get_default_tokenizer",
     # Chunker
     "CodeChunk",
+    "ChunkerConfig",
     "ChunkerInterface",
     "Chunker",
     "create_chunker",

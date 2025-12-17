@@ -38,7 +38,8 @@ class QdrantVectorStore(VectorStoreInterface):
         self._vector_size = vector_size
         self._api_key = api_key
         self._client: Optional[AsyncQdrantClient] = None
-        self._initialized = False
+        self._initialized_collections: set[str] = set()
+        self._init_locks: dict[str, asyncio.Lock] = {}
 
     async def _get_client(self) -> AsyncQdrantClient:
         """Get or create the Qdrant client."""
@@ -52,68 +53,85 @@ class QdrantVectorStore(VectorStoreInterface):
 
     def set_collection(self, collection_name: str) -> None:
         """Switch to a different collection."""
-        if collection_name != self._collection_name:
-            self._collection_name = collection_name
-            self._initialized = False
+        self._collection_name = collection_name
 
     def get_collection_name(self) -> str:
         """Get the current collection name."""
         return self._collection_name
 
-    async def initialize(self) -> None:
-        """Initialize the collection if it doesn't exist."""
-        if self._initialized:
+    async def initialize(self, collection_name: Optional[str] = None) -> None:
+        """Initialize the target collection if it doesn't exist."""
+        target_collection = collection_name or self._collection_name
+        if target_collection in self._initialized_collections:
             return
 
-        client = await self._get_client()
+        init_lock = self._init_locks.get(target_collection)
+        if init_lock is None:
+            init_lock = asyncio.Lock()
+            self._init_locks[target_collection] = init_lock
 
-        try:
-            collections = await client.get_collections()
-            exists = any(c.name == self._collection_name for c in collections.collections)
+        async with init_lock:
+            if target_collection in self._initialized_collections:
+                return
 
-            if not exists:
-                await client.create_collection(
-                    collection_name=self._collection_name,
-                    vectors_config=models.VectorParams(
-                        size=self._vector_size,
-                        distance=models.Distance.COSINE,
-                    ),
-                )
-                logger.info(f"Created collection: {self._collection_name}")
+            client = await self._get_client()
 
-                await client.create_payload_index(
-                    collection_name=self._collection_name,
-                    field_name="file_path",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                await client.create_payload_index(
-                    collection_name=self._collection_name,
-                    field_name="artifact_type",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                logger.info("Created payload indexes")
-            else:
-                collection_info = await client.get_collection(self._collection_name)
-                existing_params = collection_info.config.params if collection_info.config else None
-                existing_param_size = (
-                    existing_params.vectors.size
-                    if existing_params and existing_params.vectors
-                    else None
-                )
-                if existing_param_size and existing_param_size != self._vector_size:
-                    raise VectorStoreError(
-                        f"Existing collection '{self._collection_name}' has vector size {existing_param_size}, "
-                        f"but config requested {self._vector_size}."
+            try:
+                collections = await client.get_collections()
+                exists = any(c.name == target_collection for c in collections.collections)
+
+                if not exists:
+                    await client.create_collection(
+                        collection_name=target_collection,
+                        vectors_config=models.VectorParams(
+                            size=self._vector_size,
+                            distance=models.Distance.COSINE,
+                        ),
                     )
+                    logger.info("Created collection: %s", target_collection)
 
-            self._initialized = True
+                    await client.create_payload_index(
+                        collection_name=target_collection,
+                        field_name="file_path",
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
+                    await client.create_payload_index(
+                        collection_name=target_collection,
+                        field_name="artifact_type",
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
+                    logger.info("Created payload indexes for collection: %s", target_collection)
+                else:
+                    collection_info = await client.get_collection(target_collection)
+                    existing_params = collection_info.config.params if collection_info.config else None
+                    existing_param_size = (
+                        existing_params.vectors.size
+                        if existing_params and existing_params.vectors
+                        else None
+                    )
+                    if existing_param_size and existing_param_size != self._vector_size:
+                        raise VectorStoreError(
+                            f"Existing collection '{target_collection}' has vector size {existing_param_size}, "
+                            f"but config requested {self._vector_size}."
+                        )
 
-        except Exception as e:
-            raise VectorStoreError(f"Failed to initialize collection: {e}") from e
+                self._initialized_collections.add(target_collection)
 
-    async def upsert(self, chunk_id: str, vector: List[float], payload: dict) -> None:
+            except Exception as e:
+                raise VectorStoreError(
+                    f"Failed to initialize collection '{target_collection}': {e}"
+                ) from e
+
+    async def upsert(
+        self,
+        chunk_id: str,
+        vector: List[float],
+        payload: dict,
+        collection_name: Optional[str] = None,
+    ) -> None:
         """Insert or update a vector with its payload."""
-        await self.initialize()
+        target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
         client = await self._get_client()
 
         if "artifact_type" not in payload:
@@ -121,7 +139,7 @@ class QdrantVectorStore(VectorStoreInterface):
 
         try:
             await client.upsert(
-                collection_name=self._collection_name,
+                collection_name=target_collection,
                 points=[
                     models.PointStruct(id=chunk_id, vector=vector, payload=payload)
                 ],
@@ -129,9 +147,14 @@ class QdrantVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(f"Failed to upsert vector: {e}") from e
 
-    async def upsert_batch(self, points: List[tuple[str, List[float], dict]]) -> None:
+    async def upsert_batch(
+        self,
+        points: List[tuple[str, List[float], dict]],
+        collection_name: Optional[str] = None,
+    ) -> None:
         """Batch insert or update vectors."""
-        await self.initialize()
+        target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
         client = await self._get_client()
 
         try:
@@ -147,20 +170,21 @@ class QdrantVectorStore(VectorStoreInterface):
                 for chunk_id, vector, payload in points
             ]
             await client.upsert(
-                collection_name=self._collection_name,
+                collection_name=target_collection,
                 points=qdrant_points,
             )
         except Exception as e:
             raise VectorStoreError(f"Failed to batch upsert vectors: {e}") from e
 
-    async def delete_by_file(self, file_path: str) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
         """Delete all vectors for a file, return count deleted."""
-        await self.initialize()
+        target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
         client = await self._get_client()
 
         try:
             count_result = await client.count(
-                collection_name=self._collection_name,
+                collection_name=target_collection,
                 count_filter=models.Filter(
                     must=[
                         models.FieldCondition(
@@ -174,7 +198,7 @@ class QdrantVectorStore(VectorStoreInterface):
 
             if count > 0:
                 await client.delete(
-                    collection_name=self._collection_name,
+                    collection_name=target_collection,
                     points_selector=models.FilterSelector(
                         filter=models.Filter(
                             must=[
@@ -201,10 +225,9 @@ class QdrantVectorStore(VectorStoreInterface):
         artifact_types: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Search for similar vectors."""
-        await self.initialize()
-        client = await self._get_client()
-
         target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
+        client = await self._get_client()
 
         try:
             is_exact_path = file_filter and not is_glob_pattern(file_filter)
@@ -323,10 +346,9 @@ class QdrantVectorStore(VectorStoreInterface):
 
     async def get_stats(self, collection_name: Optional[str] = None) -> dict:
         """Get storage statistics."""
-        await self.initialize()
-        client = await self._get_client()
-
         target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
+        client = await self._get_client()
 
         try:
             collection_info = await client.get_collection(target_collection)
@@ -399,10 +421,9 @@ class QdrantVectorStore(VectorStoreInterface):
 
     async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
         """Get all unique file paths in the store."""
-        await self.initialize()
-        client = await self._get_client()
-
         target_collection = collection_name or self._collection_name
+        await self.initialize(target_collection)
+        client = await self._get_client()
 
         try:
             unique_files = set()
@@ -434,8 +455,8 @@ class QdrantVectorStore(VectorStoreInterface):
             await client.delete_collection(self._collection_name)
         except Exception:
             pass
-        self._initialized = False
-        await self.initialize()
+        self._initialized_collections.discard(self._collection_name)
+        await self.initialize(self._collection_name)
 
     async def delete_collection(self, collection_name: str) -> bool:
         """Delete a collection entirely."""
@@ -448,9 +469,7 @@ class QdrantVectorStore(VectorStoreInterface):
                 return False
 
             await client.delete_collection(collection_name)
-
-            if collection_name == self._collection_name:
-                self._initialized = False
+            self._initialized_collections.discard(collection_name)
 
             return True
         except Exception as e:
@@ -462,4 +481,5 @@ class QdrantVectorStore(VectorStoreInterface):
         if self._client:
             await self._client.close()
             self._client = None
-            self._initialized = False
+            self._initialized_collections.clear()
+            self._init_locks.clear()

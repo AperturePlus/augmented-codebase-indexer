@@ -45,12 +45,18 @@ class VectorStoreInterface(ABC):
     """Abstract interface for vector stores."""
 
     @abstractmethod
-    async def upsert(self, chunk_id: str, vector: List[float], payload: dict) -> None:
+    async def upsert(
+        self,
+        chunk_id: str,
+        vector: List[float],
+        payload: dict,
+        collection_name: Optional[str] = None,
+    ) -> None:
         """Insert or update a vector with its payload."""
         pass
 
     @abstractmethod
-    async def delete_by_file(self, file_path: str) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
         """Delete all vectors for a file, return count deleted."""
         pass
 

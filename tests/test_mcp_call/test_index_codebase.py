@@ -10,8 +10,19 @@ import asyncio
 import json
 import os
 import time
+
+import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+
+pytestmark = pytest.mark.integration
+
+if os.environ.get("ACI_RUN_MCP_INTEGRATION_TESTS") != "1":
+    pytest.skip(
+        "MCP stdio integration test disabled by default; set ACI_RUN_MCP_INTEGRATION_TESTS=1 to run.",
+        allow_module_level=True,
+    )
 
 
 async def test_index_codebase():

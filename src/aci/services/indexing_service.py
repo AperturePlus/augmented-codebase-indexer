@@ -11,6 +11,9 @@ operations (AST parsing, chunking) and async for IO-intensive operations
 
 import asyncio
 import logging
+import multiprocessing
+import os
+import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
@@ -19,7 +22,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from aci.core.ast_parser import ASTNode, ASTParserInterface, TreeSitterParser
-from aci.core.chunker import Chunker, ChunkerInterface, CodeChunk, create_chunker
+from aci.core.chunker import ChunkerConfig, ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
 from aci.core.summary_artifact import ArtifactType, SummaryArtifact
@@ -27,7 +30,7 @@ from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
-from aci.services.indexing_worker import ChunkerConfig, init_worker, process_file_worker
+from aci.services.indexing_worker import init_worker, process_file_worker
 from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
@@ -88,14 +91,7 @@ class IndexingService:
 
     def _extract_chunker_config(self, chunker: ChunkerInterface) -> ChunkerConfig:
         """Extract configuration from chunker for parallel workers."""
-        if isinstance(chunker, Chunker):
-            return ChunkerConfig(
-                max_tokens=chunker._max_tokens,
-                fixed_chunk_lines=chunker._fixed_chunk_lines,
-                overlap_lines=chunker._overlap_lines,
-            )
-        # Default config for custom chunker implementations
-        return ChunkerConfig()
+        return chunker.get_config()
 
     def _check_pending_batches_on_startup(self) -> None:
         """Check for pending batches from previous runs and log warning if any exist."""
@@ -162,7 +158,9 @@ class IndexingService:
             self._progress_callback(current, total, message)
         logger.info(f"Progress: {current}/{total} - {message}")
 
-    async def index_directory(self, root_path: Path) -> IndexingResult:
+    async def index_directory(
+        self, root_path: Path, *, max_workers: Optional[int] = None
+    ) -> IndexingResult:
         """
         Index all files in a directory.
 
@@ -180,14 +178,12 @@ class IndexingService:
         
         logger.debug(f"index_directory: starting for {root_path}")
         
+        effective_workers = self._max_workers if max_workers is None else max_workers
+
         # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
         logger.debug(f"index_directory: collection_name={collection_name}")
-        
-        # Switch vector store to use repository-specific collection
-        if hasattr(self._vector_store, "set_collection"):
-            self._vector_store.set_collection(collection_name)
         
         # Register repository with collection name
         self._metadata_store.register_repository(abs_root, collection_name)
@@ -209,9 +205,9 @@ class IndexingService:
         all_chunks: List[CodeChunk] = []
         all_summaries: List[SummaryArtifact] = []
 
-        if self._max_workers > 1 and total_files > 1:
+        if effective_workers > 1 and total_files > 1:
             all_chunks, all_summaries, result = await self._process_files_parallel(
-                files, result, total_files
+                files, result, total_files, max_workers=effective_workers
             )
         else:
             all_chunks, all_summaries, result = await self._process_files_sequential(
@@ -222,7 +218,9 @@ class IndexingService:
 
         # Generate embeddings and store chunks and summaries
         if all_chunks or all_summaries:
-            await self._embed_and_store_chunks(all_chunks, all_summaries)
+            await self._embed_and_store_chunks(
+                all_chunks, all_summaries, collection_name=collection_name
+            )
 
         result.duration_seconds = time.time() - start_time
         
@@ -249,6 +247,7 @@ class IndexingService:
         files: List[ScannedFile],
         result: IndexingResult,
         total_files: int,
+        max_workers: int,
     ) -> Tuple[List[CodeChunk], List[SummaryArtifact], IndexingResult]:
         """
         Process files in parallel using ProcessPoolExecutor.
@@ -267,13 +266,22 @@ class IndexingService:
         # Track successfully processed files for post-processing summary generation
         successfully_processed_files: List[ScannedFile] = []
         loop = asyncio.get_running_loop()
+        mp_context = self._get_process_pool_mp_context()
         
         try:
-            with ProcessPoolExecutor(
-                max_workers=self._max_workers,
-                initializer=init_worker,
-                initargs=(self._chunker_config,),
-            ) as executor:
+            executor_kwargs = {
+                "max_workers": max_workers,
+                "initializer": init_worker,
+                "initargs": (self._chunker_config,),
+            }
+            if mp_context is not None:
+                executor_kwargs["mp_context"] = mp_context
+                logger.debug(
+                    "Using multiprocessing start method '%s' for ProcessPoolExecutor",
+                    mp_context.get_start_method(),
+                )
+
+            with ProcessPoolExecutor(**executor_kwargs) as executor:
                 futures = []
                 for scanned_file in files:
                     future = loop.run_in_executor(
@@ -346,6 +354,49 @@ class IndexingService:
         all_summaries = self._generate_summaries_for_files(successfully_processed_files)
 
         return all_chunks, all_summaries, result
+
+    def _get_process_pool_mp_context(self):
+        """
+        Choose a multiprocessing context for ProcessPoolExecutor.
+
+        MCP runs over stdio and may start background threads for IO; forking a
+        multi-threaded process is prone to deadlocks/hangs. When the default
+        start method is "fork" and multiple threads are active, prefer a safer
+        start method ("forkserver" or "spawn").
+
+        Override by setting `ACI_PROCESS_START_METHOD` to one of:
+        "fork", "spawn", "forkserver".
+        """
+        forced_method = os.environ.get("ACI_PROCESS_START_METHOD")
+        if forced_method:
+            try:
+                return multiprocessing.get_context(forced_method)
+            except ValueError:
+                logger.warning(
+                    "Invalid ACI_PROCESS_START_METHOD=%r; using default start method",
+                    forced_method,
+                )
+                return None
+
+        try:
+            start_method = multiprocessing.get_start_method(allow_none=True)
+        except TypeError:
+            # Python < 3.8 compatibility (no allow_none param)
+            start_method = multiprocessing.get_start_method()
+
+        if start_method != "fork":
+            return None
+
+        if threading.active_count() <= 1:
+            return None
+
+        for candidate in ("forkserver", "spawn"):
+            try:
+                return multiprocessing.get_context(candidate)
+            except ValueError:
+                continue
+
+        return None
 
     async def _process_files_sequential(
         self,
@@ -576,6 +627,7 @@ class IndexingService:
         self,
         chunks: List[CodeChunk],
         summaries: Optional[List[SummaryArtifact]] = None,
+        collection_name: Optional[str] = None,
     ) -> None:
         """
         Generate embeddings and store chunks and summaries in batches.
@@ -668,7 +720,12 @@ class IndexingService:
                         "artifact_type": ArtifactType.CHUNK.value,
                         **chunk.metadata,
                     }
-                    await self._vector_store.upsert(chunk.chunk_id, embedding, payload)
+                    await self._vector_store.upsert(
+                        chunk.chunk_id,
+                        embedding,
+                        payload,
+                        collection_name=collection_name,
+                    )
                     
                     file_path = pending_info["file_path"] if pending_info else None
                     if file_path and file_path not in persisted_files:
@@ -752,7 +809,12 @@ class IndexingService:
                         "name": summary.name,
                         **summary.metadata,
                     }
-                    await self._vector_store.upsert(summary.artifact_id, embedding, payload)
+                    await self._vector_store.upsert(
+                        summary.artifact_id,
+                        embedding,
+                        payload,
+                        collection_name=collection_name,
+                    )
 
                 self._report_progress(
                     total_chunks + min(i + self._batch_size, total_summaries),
@@ -760,7 +822,9 @@ class IndexingService:
                     f"Embedded {min(i + self._batch_size, total_summaries)} summaries",
                 )
 
-    async def update_incremental(self, root_path: Path) -> IndexingResult:
+    async def update_incremental(
+        self, root_path: Path, *, max_workers: Optional[int] = None
+    ) -> IndexingResult:
         """
         Perform incremental update of the index.
 
@@ -770,11 +834,10 @@ class IndexingService:
         start_time = time.time()
         result = IndexingResult()
         
+        effective_workers = self._max_workers if max_workers is None else max_workers
+
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
-        
-        if hasattr(self._vector_store, "set_collection"):
-            self._vector_store.set_collection(collection_name)
         
         self._metadata_store.register_repository(abs_root, collection_name)
 
@@ -813,7 +876,7 @@ class IndexingService:
         if deleted_paths:
             self._report_progress(0, len(deleted_paths), "Removing deleted files...")
             for i, path in enumerate(deleted_paths):
-                await self._vector_store.delete_by_file(path)
+                await self._vector_store.delete_by_file(path, collection_name=collection_name)
                 self._metadata_store.delete_file(path)
                 if (i + 1) % 10 == 0 or i == len(deleted_paths) - 1:
                     self._report_progress(
@@ -826,7 +889,7 @@ class IndexingService:
             )
             for i, path in enumerate(modified_paths):
                 # delete_by_file removes all artifacts (chunks and summaries) for the file
-                await self._vector_store.delete_by_file(path)
+                await self._vector_store.delete_by_file(path, collection_name=collection_name)
                 if (i + 1) % 10 == 0 or i == len(modified_paths) - 1:
                     self._report_progress(
                         i + 1, len(modified_paths), f"Removed old artifacts for {i + 1} modified files"
@@ -840,9 +903,9 @@ class IndexingService:
             total_to_process = len(files_to_process)
             self._report_progress(0, total_to_process, "Processing new and modified files...")
 
-            if self._max_workers > 1 and total_to_process > 1:
+            if effective_workers > 1 and total_to_process > 1:
                 all_chunks, all_summaries, result = await self._process_files_parallel(
-                    files_to_process, result, total_to_process
+                    files_to_process, result, total_to_process, max_workers=effective_workers
                 )
             else:
                 all_chunks, all_summaries, result = await self._process_files_sequential(
@@ -852,7 +915,9 @@ class IndexingService:
         result.total_chunks = len(all_chunks)
 
         if all_chunks or all_summaries:
-            await self._embed_and_store_chunks(all_chunks, all_summaries)
+            await self._embed_and_store_chunks(
+                all_chunks, all_summaries, collection_name=collection_name
+            )
 
         result.duration_seconds = time.time() - start_time
         

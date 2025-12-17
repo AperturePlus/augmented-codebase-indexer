@@ -82,11 +82,17 @@ def test_mcp_package_exports():
     """Test that the mcp package exports the expected public API."""
     from aci import mcp
     
-    # Verify expected exports are available
-    assert hasattr(mcp, "get_initialized_services")
-    assert hasattr(mcp, "cleanup_services")
+    # Verify DI-based exports are available
+    assert hasattr(mcp, "MCPContext")
+    assert hasattr(mcp, "create_mcp_context")
+    assert hasattr(mcp, "cleanup_context")
+    
+    # Verify core exports
     assert hasattr(mcp, "list_tools")
     assert hasattr(mcp, "call_tool")
+    
+    # Verify backward compatibility alias
+    assert hasattr(mcp, "cleanup_services")
 
 
 def test_mcp_server_module_exports():
@@ -149,13 +155,18 @@ def test_tool_count_unchanged():
 
 
 def test_services_module_exports():
-    """Test that services module exports the expected functions."""
+    """Test that services module exports the expected constants."""
     from aci.mcp import services
     
-    assert hasattr(services, "get_initialized_services")
-    assert hasattr(services, "cleanup_services")
-    assert hasattr(services, "get_indexing_lock")
+    # Service Locator functions have been removed
+    # Only MAX_WORKERS constant remains
     assert hasattr(services, "MAX_WORKERS")
+    assert services.MAX_WORKERS == 32
+    
+    # Verify deprecated functions are removed
+    assert not hasattr(services, "get_initialized_services")
+    assert not hasattr(services, "cleanup_services")
+    assert not hasattr(services, "get_indexing_lock")
 
 
 def test_handlers_module_exports():

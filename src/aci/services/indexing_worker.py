@@ -6,23 +6,14 @@ that run in separate processes via ProcessPoolExecutor.
 """
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from aci.core.ast_parser import ASTParserInterface, TreeSitterParser
-from aci.core.chunker import ChunkerInterface, create_chunker
+from aci.core.chunker import ChunkerConfig, ChunkerInterface, create_chunker
 from aci.core.file_scanner import ScannedFile
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ChunkerConfig:
-    """Configuration for chunker in worker processes."""
-    max_tokens: int = 8192
-    fixed_chunk_lines: int = 50
-    overlap_lines: int = 5
 
 
 # Global variables for worker processes

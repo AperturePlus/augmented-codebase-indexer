@@ -1,17 +1,23 @@
 """MCP tool handlers for ACI."""
+import asyncio
 import json
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
+
 from mcp.types import TextContent
-from aci.core.path_utils import validate_indexable_path
-from aci.mcp.services import get_initialized_services, get_indexing_lock, MAX_WORKERS
+
+from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
+from aci.infrastructure.codebase_registry import best_effort_update_registry
+from aci.mcp.context import MCPContext
+from aci.mcp.services import MAX_WORKERS
 from aci.services import SearchMode
 from aci.services.repository_resolver import resolve_repository
 
-_HANDLERS = {}
+# Handler type: takes arguments dict and MCPContext, returns list of TextContent
+_HANDLERS: dict[str, Callable[[dict, MCPContext], Awaitable[list[TextContent]]]] = {}
 
 
 def _is_debug() -> bool:
@@ -24,25 +30,47 @@ def _debug(msg: str):
     if _is_debug():
         print(f"[ACI-DEBUG] {msg}", file=sys.stderr, flush=True)
 
+
 def _register(name: str):
     def decorator(fn):
         _HANDLERS[name] = fn
         return fn
     return decorator
 
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
-    """Handle tool calls from MCP clients."""
+
+def _get_repo_index_lock(ctx: MCPContext, repo_key: str) -> asyncio.Lock:
+    lock = ctx.indexing_locks.get(repo_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        ctx.indexing_locks[repo_key] = lock
+    return lock
+
+
+async def call_tool(name: str, arguments: Any, ctx: MCPContext) -> list[TextContent]:
+    """
+    Handle tool calls from MCP clients.
+
+    Args:
+        name: The tool name to invoke.
+        arguments: Tool arguments as a dictionary.
+        ctx: MCPContext containing all required services.
+
+    Returns:
+        List of TextContent with the tool result.
+    """
+    if ctx is None:
+        return [TextContent(type="text", text="Error: MCPContext not initialized")]
     try:
         handler = _HANDLERS.get(name)
         if handler:
-            return await handler(arguments)
+            return await handler(arguments, ctx)
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
         return [TextContent(type="text", text=f"Error executing {name}: {str(e)}")]
 
 
 @_register("index_codebase")
-async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
+async def _handle_index_codebase(arguments: dict, ctx: MCPContext) -> list[TextContent]:
     path_str = arguments["path"]
     workers = arguments.get("workers")
     start_time = time.time()
@@ -59,25 +87,45 @@ async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
 
     path = Path(path_str)
     _debug(f"Resolved path: {path.resolve()}")
-    
-    cfg, _, indexing_service, _, _ = get_initialized_services()
+
+    cfg = ctx.config
+    indexing_service = ctx.indexing_service
     _debug(f"Services initialized, embedding_url={cfg.embedding.api_url}, model={cfg.embedding.model}")
     _debug(f"API key present: {bool(cfg.embedding.api_key)}")
 
-    # IMPORTANT: Force single-threaded mode for MCP
-    # ProcessPoolExecutor conflicts with MCP's stdio event loop, causing hangs.
-    # Sequential processing is slower but reliable in stdio context.
-    workers = 1
-    _debug(f"Using {workers} workers (forced single-threaded for MCP stdio compatibility)")
+    # Respect user input/config while keeping a hard cap (matches HTTP API limit).
+    if workers is None:
+        workers = cfg.indexing.max_workers
+    else:
+        try:
+            workers = int(workers)
+        except (TypeError, ValueError):
+            return [TextContent(type="text", text="Error: 'workers' must be an integer")]
+        if workers < 1:
+            return [TextContent(type="text", text="Error: 'workers' must be >= 1")]
 
-    # Use lock to prevent concurrent indexing operations
-    indexing_lock = get_indexing_lock()
+    if workers < 1:
+        workers = 1
+    if workers > MAX_WORKERS:
+        _debug(f"Requested workers ({workers}) exceeds MAX_WORKERS ({MAX_WORKERS}); capping.")
+        workers = MAX_WORKERS
+
+    _debug(f"Using {workers} workers")
+
+    repo_key = str(path.resolve())
+    repo_lock = _get_repo_index_lock(ctx, repo_key)
+
     _debug("Acquiring indexing lock...")
-    async with indexing_lock:
+    async with repo_lock:
         _debug("Lock acquired, starting indexing...")
-        indexing_service._max_workers = workers
-        result = await indexing_service.index_directory(path)
+        result = await indexing_service.index_directory(path, max_workers=workers)
         _debug(f"Indexing completed in {time.time() - start_time:.2f}s")
+
+    best_effort_update_registry(
+        root_path=path,
+        metadata_db_path=ctx.metadata_store.db_path,
+        collection_name=get_collection_name_for_path(path),
+    )
 
     response = {"status": "success", "total_files": result.total_files,
         "total_chunks": result.total_chunks, "duration_seconds": result.duration_seconds,
@@ -89,7 +137,7 @@ async def _handle_index_codebase(arguments: dict) -> list[TextContent]:
 
 
 @_register("search_code")
-async def _handle_search_code(arguments: dict) -> list[TextContent]:
+async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextContent]:
     query = arguments["query"]
     search_path = Path(arguments["path"])
     limit = arguments.get("limit")
@@ -98,7 +146,9 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
     mode = arguments.get("mode")
     artifact_types = arguments.get("artifact_types")
 
-    cfg, search_service, _, metadata_store, _ = get_initialized_services()
+    cfg = ctx.config
+    search_service = ctx.search_service
+    metadata_store = ctx.metadata_store
 
     # Use centralized repository resolution
     resolution = resolve_repository(search_path, metadata_store)
@@ -191,8 +241,10 @@ async def _handle_search_code(arguments: dict) -> list[TextContent]:
 
 
 @_register("get_index_status")
-async def _handle_get_status(arguments: dict) -> list[TextContent]:
-    cfg, _, _, metadata_store, vector_store = get_initialized_services()
+async def _handle_get_status(arguments: dict, ctx: MCPContext) -> list[TextContent]:
+    cfg = ctx.config
+    metadata_store = ctx.metadata_store
+    vector_store = ctx.vector_store
 
     # Check if a specific path was requested
     path_str = arguments.get("path")
@@ -260,7 +312,7 @@ async def _handle_get_status(arguments: dict) -> list[TextContent]:
 
 
 @_register("update_index")
-async def _handle_update_index(arguments: dict) -> list[TextContent]:
+async def _handle_update_index(arguments: dict, ctx: MCPContext) -> list[TextContent]:
     path_str = arguments["path"]
     start_time = time.time()
     _debug(f"update_index called with path: {path_str}")
@@ -276,8 +328,10 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
 
     path = Path(path_str)
     _debug(f"Resolved path: {path.resolve()}")
-    
-    cfg, _, indexing_service, metadata_store, _ = get_initialized_services()
+
+    cfg = ctx.config
+    indexing_service = ctx.indexing_service
+    metadata_store = ctx.metadata_store
     _debug("Services initialized")
 
     # Check if path is indexed
@@ -294,7 +348,7 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
     # Check if we have file hashes (required for incremental update)
     existing_hashes = metadata_store.get_all_file_hashes()
     _debug(f"Existing file hashes count: {len(existing_hashes)}")
-    
+
     if len(existing_hashes) == 0:
         _debug("No file hashes found - index metadata is incomplete")
         return [TextContent(
@@ -305,13 +359,20 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
             )
         )]
 
-    # Use lock to prevent concurrent indexing operations
-    indexing_lock = get_indexing_lock()
+    repo_key = str(path.resolve())
+    repo_lock = _get_repo_index_lock(ctx, repo_key)
+
     _debug("Acquiring indexing lock...")
-    async with indexing_lock:
+    async with repo_lock:
         _debug("Lock acquired, starting incremental update...")
         result = await indexing_service.update_incremental(path)
         _debug(f"Update completed in {time.time() - start_time:.2f}s")
+
+        best_effort_update_registry(
+            root_path=path,
+            metadata_db_path=metadata_store.db_path,
+            collection_name=get_collection_name_for_path(path),
+        )
 
         response = {
             "status": "success",
@@ -326,8 +387,8 @@ async def _handle_update_index(arguments: dict) -> list[TextContent]:
 
 
 @_register("list_indexed_repos")
-async def _handle_list_repos(arguments: dict) -> list[TextContent]:
-    _, _, _, metadata_store, _ = get_initialized_services()
+async def _handle_list_repos(arguments: dict, ctx: MCPContext) -> list[TextContent]:
+    metadata_store = ctx.metadata_store
 
     repos = metadata_store.get_repositories()
 

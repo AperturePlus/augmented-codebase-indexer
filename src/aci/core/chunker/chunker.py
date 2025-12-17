@@ -15,7 +15,7 @@ from aci.core.summary_artifact import SummaryArtifact
 from aci.core.tokenizer import TokenizerInterface
 
 from .import_extractors import ImportExtractorRegistry, get_import_registry
-from .interfaces import ChunkerInterface
+from .interfaces import ChunkerConfig, ChunkerInterface
 from .models import ChunkingResult, CodeChunk
 from .smart_splitter import SmartChunkSplitter
 
@@ -73,6 +73,14 @@ class Chunker(ChunkerInterface):
     def set_max_tokens(self, max_tokens: int) -> None:
         """Set the maximum token count per chunk."""
         self._max_tokens = max_tokens
+
+    def get_config(self) -> ChunkerConfig:
+        """Get the chunker configuration for parallel workers."""
+        return ChunkerConfig(
+            max_tokens=self._max_tokens,
+            fixed_chunk_lines=self._fixed_chunk_lines,
+            overlap_lines=self._overlap_lines,
+        )
 
     def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> ChunkingResult:
         """

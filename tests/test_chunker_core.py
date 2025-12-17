@@ -267,6 +267,23 @@ def main():
         chunker.set_max_tokens(4096)
         assert chunker._max_tokens == 4096
 
+    def test_get_config_returns_chunker_config(self, tokenizer):
+        """Test get_config returns ChunkerConfig with current settings."""
+        from aci.core.chunker import ChunkerConfig
+
+        chunker = Chunker(
+            tokenizer=tokenizer,
+            max_tokens=4096,
+            fixed_chunk_lines=100,
+            overlap_lines=10,
+        )
+        config = chunker.get_config()
+
+        assert isinstance(config, ChunkerConfig)
+        assert config.max_tokens == 4096
+        assert config.fixed_chunk_lines == 100
+        assert config.overlap_lines == 10
+
     def test_line_numbers_accuracy(self, chunker, parser):
         """Test that chunk line numbers match content."""
         content = '''# Comment line 1
