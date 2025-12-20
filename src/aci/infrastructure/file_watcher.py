@@ -78,7 +78,7 @@ class FileWatcher(FileWatcherInterface):
         self._extensions = {ext.lower() for ext in extensions}
         self._ignore_patterns = ignore_patterns or []
         self._follow_symlinks = follow_symlinks
-        self._observer: Observer | None = None
+        self._observer = None
         self._callback: Callable[[FileEvent], None] | None = None
         self._watch_path: Path | None = None
         self._lock = threading.Lock()
