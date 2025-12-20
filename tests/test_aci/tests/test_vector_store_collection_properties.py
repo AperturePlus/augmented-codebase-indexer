@@ -2,7 +2,8 @@
 
 import asyncio
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from aci.infrastructure.fakes import InMemoryVectorStore
 from tests.vector_store_strategies import chunk_id_strategy, chunk_payload_strategy, vector_strategy

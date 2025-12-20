@@ -8,7 +8,6 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from aci.services.search_service import SearchService
 
@@ -20,9 +19,9 @@ class QueryResult:
     """Result for a single evaluation query."""
 
     query: str
-    expected_files: List[str]
-    retrieved_files: List[str]
-    recall_at_k: Dict[int, float]
+    expected_files: list[str]
+    retrieved_files: list[str]
+    recall_at_k: dict[int, float]
     reciprocal_rank: float
 
 
@@ -30,10 +29,10 @@ class QueryResult:
 class EvaluationResult:
     """Overall evaluation results."""
 
-    recall_at_k: Dict[int, float] = field(default_factory=dict)
+    recall_at_k: dict[int, float] = field(default_factory=dict)
     mrr: float = 0.0
     total_queries: int = 0
-    per_query_results: List[QueryResult] = field(default_factory=list)
+    per_query_results: list[QueryResult] = field(default_factory=list)
 
 
 @dataclass
@@ -41,7 +40,7 @@ class EvaluationQuery:
     """A single query-answer pair for evaluation."""
 
     query: str
-    relevant_files: List[str]  # File paths that should be returned
+    relevant_files: list[str]  # File paths that should be returned
 
 
 class EvaluationService:
@@ -60,7 +59,7 @@ class EvaluationService:
         """
         self._search_service = search_service
 
-    def load_dataset(self, dataset_path: Path) -> List[EvaluationQuery]:
+    def load_dataset(self, dataset_path: Path) -> list[EvaluationQuery]:
         """
         Load evaluation dataset from JSON file.
 
@@ -76,7 +75,7 @@ class EvaluationService:
         Returns:
             List of EvaluationQuery objects
         """
-        with open(dataset_path, "r", encoding="utf-8") as f:
+        with open(dataset_path, encoding="utf-8") as f:
             data = json.load(f)
 
         return [
@@ -90,7 +89,7 @@ class EvaluationService:
     async def evaluate(
         self,
         dataset_path: Path,
-        k_values: Optional[List[int]] = None,
+        k_values: list[int] | None = None,
         max_results: int = 20,
     ) -> EvaluationResult:
         """
@@ -110,7 +109,7 @@ class EvaluationService:
         result = EvaluationResult(total_queries=len(queries))
 
         # Initialize recall accumulators
-        recall_sums = {k: 0.0 for k in k_values}
+        recall_sums = dict.fromkeys(k_values, 0.0)
         mrr_sum = 0.0
 
         for eval_query in queries:
@@ -164,7 +163,7 @@ class EvaluationService:
 
     def _calculate_reciprocal_rank(
         self,
-        retrieved: List[str],
+        retrieved: list[str],
         relevant: set,
     ) -> float:
         """
@@ -186,8 +185,8 @@ class EvaluationService:
 
     @staticmethod
     def calculate_recall_at_k(
-        retrieved: List[str],
-        relevant: List[str],
+        retrieved: list[str],
+        relevant: list[str],
         k: int,
     ) -> float:
         """
@@ -213,7 +212,7 @@ class EvaluationService:
         return hits / len(relevant_set)
 
     @staticmethod
-    def calculate_mrr(rankings: List[int]) -> float:
+    def calculate_mrr(rankings: list[int]) -> float:
         """
         Calculate Mean Reciprocal Rank.
 

@@ -31,6 +31,8 @@ from aci.core.config import (
     VectorStoreConfig,
     load_config,
 )
+from aci.core.debouncer import Debouncer
+from aci.core.file_events import DebouncedBatch, FileEvent, FileEventType
 from aci.core.file_scanner import (
     EXTENSION_TO_LANGUAGE,
     FileScanner,
@@ -44,6 +46,7 @@ from aci.core.tokenizer import (
     TokenizerInterface,
     get_default_tokenizer,
 )
+from aci.core.watch_config import WatchConfig
 
 __all__ = [
     # Config
@@ -84,4 +87,12 @@ __all__ = [
     "JavaScriptImportExtractor",
     "GoImportExtractor",
     "get_import_registry",
+    # Watch Config
+    "WatchConfig",
+    # File Events
+    "FileEventType",
+    "FileEvent",
+    "DebouncedBatch",
+    # Debouncer
+    "Debouncer",
 ]

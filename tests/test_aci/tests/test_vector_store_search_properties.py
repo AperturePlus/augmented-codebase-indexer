@@ -2,7 +2,8 @@
 
 import asyncio
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from aci.infrastructure.fakes import InMemoryVectorStore
 from tests.vector_store_strategies import (
@@ -107,7 +108,7 @@ def test_search_result_completeness(chunks: list[tuple[str, list[float], dict]],
 
     results = asyncio.run(run_test())
 
-    for i, result in enumerate(results):
+    for _i, result in enumerate(results):
         assert result.file_path
         assert result.start_line > 0
         assert result.end_line >= result.start_line

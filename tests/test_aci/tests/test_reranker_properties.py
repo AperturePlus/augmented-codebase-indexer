@@ -7,7 +7,6 @@ result subset validation and limit compliance.
 Uses SimpleReranker for testing without loading heavy ML models.
 """
 
-from typing import Set
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
@@ -99,8 +98,8 @@ class TestRerankerResultSubset:
         results = reranker.rerank(query, candidates, top_k)
 
         # Get chunk_ids from candidates and results
-        candidate_ids: Set[str] = {c.chunk_id for c in candidates}
-        result_ids: Set[str] = {r.chunk_id for r in results}
+        candidate_ids: set[str] = {c.chunk_id for c in candidates}
+        result_ids: set[str] = {r.chunk_id for r in results}
 
         # Results should be a subset of candidates
         assert result_ids.issubset(candidate_ids), (

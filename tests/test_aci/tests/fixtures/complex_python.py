@@ -7,7 +7,7 @@ ability to handle real-world code patterns.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # =============================================================================
 # Decorators and decorated functions
@@ -108,7 +108,7 @@ class DerivedClass(BaseClass):
         """Implementation of the abstract method."""
         return f"{self.name}: {self.value}"
 
-    def method_with_complex_logic(self, items: List[int]) -> Dict[str, Any]:
+    def method_with_complex_logic(self, items: list[int]) -> dict[str, Any]:
         """A method with complex logic."""
         result = {
             "sum": sum(items),
@@ -179,7 +179,7 @@ class SimpleDataclass:
 
     name: str
     value: int
-    optional: Optional[str] = None
+    optional: str | None = None
 
 
 @dataclass
@@ -241,8 +241,7 @@ class AsyncClass:
 
 def generator_function(n: int):
     """A generator function."""
-    for i in range(n):
-        yield i
+    yield from range(n)
 
 
 def generator_with_send():
@@ -283,7 +282,7 @@ def function_with_complex_signature(
     *args: int,
     keyword_only: bool = False,
     **kwargs: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """A function with a complex signature using all parameter types."""
     return {
         "pos_only": pos_only,
@@ -295,9 +294,9 @@ def function_with_complex_signature(
 
 
 def function_with_type_hints(
-    items: List[Dict[str, int]],
-    callback: Optional[callable] = None,
-) -> List[int]:
+    items: list[dict[str, int]],
+    callback: callable | None = None,
+) -> list[int]:
     """A function with complex type hints."""
     results = []
     for item in items:

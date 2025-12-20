@@ -8,10 +8,10 @@ Property-based tests for CLI search mode acceptance.
 """
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from aci.services.search_types import SearchMode
-
 
 # Valid search modes as defined in SearchMode enum
 VALID_MODES = {"hybrid", "vector", "grep", "summary"}

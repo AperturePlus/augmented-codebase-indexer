@@ -6,7 +6,6 @@ Contains abstract interface, data classes, and exceptions for vector stores.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 
 def is_glob_pattern(path: str) -> bool:
@@ -38,7 +37,7 @@ class SearchResult:
     end_line: int
     content: str
     score: float
-    metadata: Dict
+    metadata: dict
 
 
 class VectorStoreInterface(ABC):
@@ -48,27 +47,27 @@ class VectorStoreInterface(ABC):
     async def upsert(
         self,
         chunk_id: str,
-        vector: List[float],
+        vector: list[float],
         payload: dict,
-        collection_name: Optional[str] = None,
+        collection_name: str | None = None,
     ) -> None:
         """Insert or update a vector with its payload."""
         pass
 
     @abstractmethod
-    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: str | None = None) -> int:
         """Delete all vectors for a file, return count deleted."""
         pass
 
     @abstractmethod
     async def search(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 10,
-        file_filter: Optional[str] = None,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None = None,
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         """
         Search for similar vectors.
 
@@ -85,17 +84,17 @@ class VectorStoreInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_stats(self, collection_name: Optional[str] = None) -> dict:
+    async def get_stats(self, collection_name: str | None = None) -> dict:
         """Get storage statistics."""
         pass
 
     @abstractmethod
-    async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
+    async def get_by_id(self, chunk_id: str) -> SearchResult | None:
         """Get a specific chunk by ID."""
         pass
 
     @abstractmethod
-    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+    async def get_all_file_paths(self, collection_name: str | None = None) -> list[str]:
         """Get all unique file paths in the store."""
         pass
 

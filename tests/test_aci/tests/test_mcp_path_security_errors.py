@@ -5,15 +5,16 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tests.mcp_path_security_strategies import run_async, valid_directory_names
 
 
 def _create_mock_context():
     """Create a minimal MCPContext for testing error paths."""
-    from aci.core.config import ACIConfig
     from aci.core.chunker import create_chunker
+    from aci.core.config import ACIConfig
     from aci.core.file_scanner import FileScanner
     from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
     from aci.infrastructure.metadata_store import IndexMetadataStore

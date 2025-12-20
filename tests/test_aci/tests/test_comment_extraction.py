@@ -1,26 +1,24 @@
 
-import unittest
-import asyncio
-from pathlib import Path
 import shutil
 import tempfile
-import os
-from typing import List, Tuple
+import unittest
+from pathlib import Path
 
 # Import necessary modules from the project
 from aci.core.ast_parser import TreeSitterParser
 from aci.core.chunker import Chunker
-from aci.core.file_scanner import FileScanner, ScannedFile
+from aci.core.file_scanner import ScannedFile
 from aci.core.tokenizer import TokenizerInterface
+
 
 # Mock Tokenizer for testing
 class MockTokenizer(TokenizerInterface):
-    def encode(self, text: str) -> List[int]:
+    def encode(self, text: str) -> list[int]:
         return [1] * len(text.split())  # Simple mock
-    
-    def decode(self, tokens: List[int]) -> str:
+
+    def decode(self, tokens: list[int]) -> str:
         return " ".join(["token"] * len(tokens))
-    
+
     def count_tokens(self, text: str) -> int:
         if not text:
             return 0
@@ -29,21 +27,21 @@ class MockTokenizer(TokenizerInterface):
     def truncate_to_tokens(self, text: str, max_tokens: int) -> str:
         if not text:
             return ""
-        
+
         if self.count_tokens(text) <= max_tokens:
             return text
-            
+
         lines = text.split('\n')
         result = []
         current_count = 0
-        
+
         for line in lines:
             count = self.count_tokens(line)
             if current_count + count > max_tokens:
                 break
             result.append(line)
             current_count += count
-            
+
         return "\n".join(result)
 
 class TestCommentExtractionIntegration(unittest.TestCase):
@@ -52,7 +50,7 @@ class TestCommentExtractionIntegration(unittest.TestCase):
         self.parser = TreeSitterParser()
         self.tokenizer = MockTokenizer()
         self.chunker = Chunker(tokenizer=self.tokenizer)
-        
+
         # Create complex test files with comments
         self.create_test_files()
 
@@ -133,13 +131,13 @@ func helper() {}
         """Test JSDoc extraction and indexing in JavaScript."""
         file_path = self.test_dir / "complex_js.js"
         content = file_path.read_text(encoding="utf-8")
-        
+
         # 1. Parse AST
         ast_nodes = self.parser.parse(content, "javascript")
-        
+
         # Verify AST extraction
         self.assertTrue(len(ast_nodes) > 0, "Should extract AST nodes from JS")
-        
+
         # Find specific nodes
         process_func = next((n for n in ast_nodes if n.name == "processFile"), None)
         retry_func = next((n for n in ast_nodes if n.name == "calculateRetry"), None)
@@ -165,29 +163,26 @@ func helper() {}
             modified_time=0,
             content_hash="abc"
         )
-        
+
         result = self.chunker.chunk(scanned_file, ast_nodes)
         chunks = result.chunks
-        
+
         # Verify Chunks contain comments in CONTENT (not just metadata)
         process_chunk = next((c for c in chunks if c.metadata.get("function_name") == "processFile"), None)
         self.assertIsNotNone(process_chunk)
         # The chunk content should START with the docstring (or contain it prominently)
         self.assertIn("Processes a file", process_chunk.content)
         self.assertIn("async function processFile", process_chunk.content)
-        
-        print("\n[PASS] JavaScript Comment Extraction Verified")
-        print(f"  - Found function 'processFile' with docstring length: {len(process_func.docstring)}")
-        print(f"  - Chunk content preview: {process_chunk.content[:50]}...")
+
 
     def test_go_comment_extraction(self):
         """Test GoDoc extraction and indexing in Go."""
         file_path = self.test_dir / "complex_go.go"
         content = file_path.read_text(encoding="utf-8")
-        
+
         # 1. Parse AST
         ast_nodes = self.parser.parse(content, "go")
-        
+
         # Find nodes
         auth_func = next((n for n in ast_nodes if n.name == "AuthenticateUser"), None)
         connect_func = next((n for n in ast_nodes if n.name == "ConnectDatabase"), None)
@@ -200,7 +195,7 @@ func helper() {}
 
         self.assertIsNotNone(connect_func)
         self.assertIn("establishes a connection pool", connect_func.docstring)
-        
+
         self.assertIsNotNone(user_struct)
         self.assertIn("represents a system user", user_struct.docstring)
 
@@ -215,13 +210,11 @@ func helper() {}
         )
         result = self.chunker.chunk(scanned_file, ast_nodes)
         chunks = result.chunks
-        
+
         auth_chunk = next((c for c in chunks if c.metadata.get("function_name") == "AuthenticateUser"), None)
         self.assertIsNotNone(auth_chunk)
         self.assertIn("verifies the user's credentials", auth_chunk.content)
-        
-        print("\n[PASS] Go Comment Extraction Verified")
-        print(f"  - Found function 'AuthenticateUser' with docstring length: {len(auth_func.docstring)}")
+
 
     def test_search_relevance_simulation(self):
         """
@@ -230,31 +223,28 @@ func helper() {}
         Expected: Match 'processFile' function in JS because of its docstring.
         """
         # This test simulates what the semantic search would 'see' in the vector
-        # We can't run full vector search here without embedding model, 
+        # We can't run full vector search here without embedding model,
         # but we can verify the information is present in the text to be embedded.
-        
+
         file_path = self.test_dir / "complex_js.js"
         content = file_path.read_text(encoding="utf-8")
         ast_nodes = self.parser.parse(content, "javascript")
         scanned_file = ScannedFile(path=file_path, content=content, language="javascript", size_bytes=len(content), modified_time=0, content_hash="abc")
         result = self.chunker.chunk(scanned_file, ast_nodes)
         chunks = result.chunks
-        
+
         process_chunk = next((c for c in chunks if c.metadata.get("function_name") == "processFile"), None)
-        
+
         # The query keywords are in the docstring, not the code variable names (except 'process')
         # "text encoding" is in docstring
         # "error logging" is in docstring
-        
+
         term_in_doc = "error logging"
         term_in_code = "fs.promises.readFile"
-        
+
         self.assertIn(term_in_doc, process_chunk.content)
         self.assertIn(term_in_code, process_chunk.content)
-        
-        print("\n[PASS] Search Relevance Simulation Verified")
-        print(f"  - Chunk contains semantic term '{term_in_doc}' from docstring")
-        print(f"  - Chunk contains code term '{term_in_code}' from source")
+
 
 if __name__ == "__main__":
     unittest.main()

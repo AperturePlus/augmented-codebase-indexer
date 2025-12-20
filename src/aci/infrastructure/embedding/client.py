@@ -1,7 +1,6 @@
 """OpenAI-compatible embedding client implementation."""
 
 import logging
-from typing import List, Optional
 
 import httpx
 
@@ -24,7 +23,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
     Supports batch processing with configurable batch size and
     exponential backoff retry for rate limits and transient errors.
     Uses connection pooling for efficient HTTP connections (Req 6.5).
-    
+
     Batch Fallback Behavior:
         When enabled (default), the client automatically handles token limit
         errors (HTTP 413) by reducing the batch size and retrying. This allows
@@ -42,7 +41,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         dimension: int = 1536,
         batch_size: int = 100,
         timeout: float = 30.0,
-        retry_config: Optional[RetryConfig] = None,
+        retry_config: RetryConfig | None = None,
         encoding_format: str = 'float'
     ):
         """
@@ -68,7 +67,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         self._encoding_format = encoding_format
 
         # Connection pooling - reuse HTTP client across requests (Req 6.5)
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
         # Validate batch_size
         if batch_size < 1:
@@ -98,13 +97,13 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
             await self._client.aclose()
             self._client = None
 
-    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a batch of texts.
 
         Automatically splits large batches into smaller chunks based on
         the configured batch_size and processes them sequentially.
-        
+
         If batch fallback is enabled and a token limit error occurs,
         the batch size will be reduced and the failed batch retried.
 
@@ -124,32 +123,32 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         return await self._embed_with_fallback(texts, self._batch_size)
 
     async def _embed_with_fallback(
-        self, texts: List[str], current_batch_size: int
-    ) -> List[List[float]]:
+        self, texts: list[str], current_batch_size: int
+    ) -> list[list[float]]:
         """
         Embed texts with automatic batch size fallback on token limit errors.
-        
+
         When a BatchSizeError occurs, reduces the batch size by half and retries.
         Continues with the reduced batch size for remaining items.
-        
+
         Args:
             texts: List of texts to embed
             current_batch_size: Current batch size to use
-            
+
         Returns:
             List of embedding vectors in the same order as input texts
-            
+
         Raises:
             NonRetryableError: If a single item exceeds token limits
             EmbeddingClientError: If embedding fails after all retries
         """
-        all_embeddings: List[List[float]] = []
+        all_embeddings: list[list[float]] = []
         config = self._retry_config
-        
+
         i = 0
         while i < len(texts):
             batch = texts[i : i + current_batch_size]
-            
+
             try:
                 batch_embeddings = await self._embed_single_batch(batch)
                 all_embeddings.extend(batch_embeddings)
@@ -160,7 +159,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
                     raise NonRetryableError(
                         f"Token limit exceeded and batch fallback is disabled: {e}"
                     ) from e
-                
+
                 # Check if we can reduce batch size further
                 if current_batch_size <= config.min_batch_size:
                     # Single item exceeds token limit
@@ -171,7 +170,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
                     raise NonRetryableError(
                         f"Single item at index {i} exceeds token limit: {e}"
                     ) from e
-                
+
                 # Reduce batch size and retry
                 new_batch_size = max(config.min_batch_size, current_batch_size // 2)
                 logger.warning(
@@ -180,10 +179,10 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
                 )
                 current_batch_size = new_batch_size
                 # Don't increment i - retry the same batch with smaller size
-        
+
         return all_embeddings
 
-    async def _embed_single_batch(self, texts: List[str]) -> List[List[float]]:
+    async def _embed_single_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Embed a single batch of texts with retry logic.
 
@@ -192,7 +191,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
 
         Returns:
             List of embedding vectors
-            
+
         Raises:
             BatchSizeError: If token limit is exceeded (for fallback handling)
             RetryableError: For transient errors after retries exhausted
@@ -200,7 +199,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         """
         return await with_retry(lambda: self._call_api(texts), self._retry_config)
 
-    async def _call_api(self, texts: List[str]) -> List[List[float]]:
+    async def _call_api(self, texts: list[str]) -> list[list[float]]:
         """
         Make the actual API call to generate embeddings.
 

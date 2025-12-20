@@ -2,12 +2,10 @@
 Property-based tests for C/C++ Doxygen extraction.
 """
 
-import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from aci.core.ast_parser import TreeSitterParser
-
 
 # C/C++ reserved keywords to avoid
 CPP_KEYWORDS = {

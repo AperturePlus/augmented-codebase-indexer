@@ -5,7 +5,6 @@ Contains dataclasses for indexing results and processed files.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from aci.core.chunker import CodeChunk
 from aci.core.summary_artifact import SummaryArtifact
@@ -20,7 +19,7 @@ class IndexingResult:
     new_files: int = 0
     modified_files: int = 0
     deleted_files: int = 0
-    failed_files: List[str] = field(default_factory=list)
+    failed_files: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
 
 
@@ -29,12 +28,12 @@ class ProcessedFile:
     """Result of processing a single file."""
 
     file_path: str
-    chunks: List[CodeChunk]
+    chunks: list[CodeChunk]
     language: str
     line_count: int
     content_hash: str
-    summaries: List[SummaryArtifact] = field(default_factory=list)
-    error: Optional[str] = None
+    summaries: list[SummaryArtifact] = field(default_factory=list)
+    error: str | None = None
 
 
 class IndexingError(Exception):
@@ -43,9 +42,9 @@ class IndexingError(Exception):
     def __init__(
         self,
         message: str,
-        batch_index: Optional[int] = None,
-        expected: Optional[int] = None,
-        actual: Optional[int] = None,
+        batch_index: int | None = None,
+        expected: int | None = None,
+        actual: int | None = None,
     ):
         self.batch_index = batch_index
         self.expected = expected

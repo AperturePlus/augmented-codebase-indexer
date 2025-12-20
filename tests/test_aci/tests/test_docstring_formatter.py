@@ -5,7 +5,6 @@ Tests normalization, formatting, and pretty-printing of docstrings
 from various programming languages.
 """
 
-import pytest
 
 from aci.core.docstring_formatter import DocstringFormatter
 
@@ -66,11 +65,11 @@ class TestDocstringFormatterNormalize:
         """Test normalizing Python docstring with triple double quotes."""
         docstring = '''"""
         Calculate the sum of two numbers.
-        
+
         Args:
             a: First number
             b: Second number
-            
+
         Returns:
             The sum of a and b
         """'''
@@ -214,7 +213,7 @@ class TestDocstringFormatterFormatForEmbedding:
         code = "function complex(x) { return x * 2; }"
         result = self.formatter.format_for_embedding(docstring, code, "javascript")
 
-        lines = result.split("\n")
+        result.split("\n")
         # Should have docstring, delimiter, and code
         assert "Complex function" in result
         assert "@param x" in result

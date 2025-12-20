@@ -4,10 +4,21 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from aci.core.path_utils import WINDOWS_SYSTEM_DIRS, ensure_directory_exists, is_system_directory, validate_indexable_path
-from tests.path_utils_strategies import WINDOWS_RESERVED, non_existent_paths, posix_system_paths, windows_system_paths
+from aci.core.path_utils import (
+    WINDOWS_SYSTEM_DIRS,
+    ensure_directory_exists,
+    is_system_directory,
+    validate_indexable_path,
+)
+from tests.path_utils_strategies import (
+    WINDOWS_RESERVED,
+    non_existent_paths,
+    posix_system_paths,
+    windows_system_paths,
+)
 
 
 class TestPathExistenceValidation:

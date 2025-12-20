@@ -5,12 +5,10 @@ Feature: comment-aware-search, Property 1: JavaScript Docstring Extraction
 Validates: Requirements 1.1, 1.2, 1.3, 1.4
 """
 
-import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aci.core.ast_parser import TreeSitterParser
-
 
 # Simple strategy for generating valid JavaScript identifiers (no reserved words)
 js_identifier = st.sampled_from([
@@ -30,11 +28,11 @@ jsdoc_content = st.text(
 class TestJSDocExtractionProperty:
     """
     Property 1: JavaScript Docstring Extraction
-    
+
     For any JavaScript/TypeScript code containing a function, class, or method
     with a preceding JSDoc comment (/** ... */), when parsed by the AST parser,
     the resulting ASTNode SHALL have its docstring field populated.
-    
+
     Feature: comment-aware-search, Property 1: JavaScript Docstring Extraction
     **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
     """
@@ -51,7 +49,7 @@ function {name}() {{
     return 1;
 }}'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         func_nodes = [n for n in nodes if n.name == name]
         assert len(func_nodes) == 1, f"Expected 1 function, got {len(func_nodes)}"
         assert func_nodes[0].docstring is not None
@@ -62,13 +60,13 @@ function {name}() {{
     def test_class_with_jsdoc_has_docstring(self, name: str, content: str):
         """Property: Any class with JSDoc SHALL have docstring populated."""
         class_name = name.capitalize()
-        
+
         code = f'''/** {content} */
 class {class_name} {{
     constructor() {{}}
 }}'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         class_nodes = [n for n in nodes if n.node_type == "class"]
         assert len(class_nodes) == 1
         assert class_nodes[0].docstring is not None
@@ -81,7 +79,7 @@ class {class_name} {{
         code = f'''/** {content} */
 const {name} = () => 1;'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         func_nodes = [n for n in nodes if n.name == name]
         assert len(func_nodes) == 1
         assert func_nodes[0].docstring is not None
@@ -95,7 +93,7 @@ const {name} = () => 1;'''
     return 1;
 }}'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         func_nodes = [n for n in nodes if n.name == name]
         assert len(func_nodes) == 1
         assert func_nodes[0].docstring is None
@@ -112,7 +110,7 @@ function test(x) {{
     return x;
 }}'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "@param" in nodes[0].docstring
@@ -129,7 +127,7 @@ function test() {{
     return 1;
 }}'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "@returns" in nodes[0].docstring

@@ -4,7 +4,6 @@ Data models for metadata store.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
 
 
 class MetadataStoreError(Exception):
@@ -16,8 +15,8 @@ class MetadataStoreError(Exception):
 class PendingBatch:
     """Information about a pending batch operation."""
     batch_id: str
-    file_paths: List[str]
-    chunk_ids: List[str]
+    file_paths: list[str]
+    chunk_ids: list[str]
     created_at: datetime
 
 

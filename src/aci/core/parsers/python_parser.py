@@ -4,9 +4,9 @@ Python language parser.
 Extracts functions, classes, and methods from Python code using Tree-sitter.
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
-from aci.core.parsers.base import LanguageParser, ASTNode
+from aci.core.parsers.base import ASTNode, LanguageParser
 
 
 class PythonParser(LanguageParser):
@@ -20,14 +20,14 @@ class PythonParser(LanguageParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_python"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
         """Extract functions, classes, and methods from Python code."""
         nodes = []
         self._traverse(root_node, content, nodes, parent_class=None)
         return nodes
 
     def _traverse(
-        self, node: Any, content: str, nodes: List[ASTNode], parent_class: Optional[str]
+        self, node: Any, content: str, nodes: list[ASTNode], parent_class: str | None
     ) -> None:
         """Recursively traverse Python AST and extract nodes."""
         if node.type == "function_definition":
@@ -51,8 +51,8 @@ class PythonParser(LanguageParser):
             self._traverse(child, content, nodes, parent_class)
 
     def _extract_function(
-        self, node: Any, content: str, parent_class: Optional[str]
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None
+    ) -> ASTNode | None:
         """Extract a Python function or method definition."""
         name = None
         docstring = None
@@ -80,7 +80,7 @@ class PythonParser(LanguageParser):
             docstring=docstring,
         )
 
-    def _extract_class(self, node: Any, content: str) -> Optional[ASTNode]:
+    def _extract_class(self, node: Any, content: str) -> ASTNode | None:
         """Extract a Python class definition."""
         name = None
         docstring = None
@@ -107,7 +107,7 @@ class PythonParser(LanguageParser):
             docstring=docstring,
         )
 
-    def _extract_docstring(self, block_node: Any, content: str) -> Optional[str]:
+    def _extract_docstring(self, block_node: Any, content: str) -> str | None:
         """Extract docstring from a Python block."""
         for child in block_node.children:
             if child.type == "expression_statement":

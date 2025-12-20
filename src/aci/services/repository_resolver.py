@@ -7,7 +7,6 @@ collection names across CLI, HTTP, and MCP interfaces.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from aci.core.path_utils import get_collection_name_for_path
 from aci.infrastructure.metadata_store import IndexMetadataStore
@@ -27,9 +26,9 @@ class RepositoryResolution:
     """
 
     valid: bool
-    collection_name: Optional[str] = None
-    indexed_root: Optional[str] = None
-    error_message: Optional[str] = None
+    collection_name: str | None = None
+    indexed_root: str | None = None
+    error_message: str | None = None
 
 
 def resolve_repository(

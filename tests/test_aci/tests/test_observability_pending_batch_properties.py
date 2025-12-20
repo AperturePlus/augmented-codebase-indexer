@@ -18,7 +18,6 @@ from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
 from aci.infrastructure.metadata_store import IndexMetadataStore
 from aci.services.indexing_service import IndexingService
 
-
 # Strategies for generating test data
 batch_id_strategy = st.text(
     alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_"),
@@ -188,7 +187,7 @@ def test_batch_failure_rollback_preserves_consistency(file_paths: list[str]):
                 await service._embed_and_store_chunks(all_chunks)
 
             asyncio.run(run_indexing())
-            assert False, "Expected RuntimeError from failing vector store"
+            raise AssertionError("Expected RuntimeError from failing vector store")
 
         except RuntimeError as e:
             assert "Simulated Qdrant failure" in str(e)

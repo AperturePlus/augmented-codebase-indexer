@@ -7,10 +7,9 @@ and indexing statistics. Supports percentile calculations (p50, p95).
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 
-def calculate_percentile(values: List[float], percentile: float) -> float:
+def calculate_percentile(values: list[float], percentile: float) -> float:
     """
     Calculate the given percentile of a list of values.
 
@@ -47,21 +46,42 @@ class IndexingMetrics:
     embedding operations, Qdrant calls, and overall indexing statistics.
     """
 
-    embedding_latency_ms: List[float] = field(default_factory=list)
-    qdrant_call_duration_ms: List[float] = field(default_factory=list)
+    embedding_latency_ms: list[float] = field(default_factory=list)
+    qdrant_call_duration_ms: list[float] = field(default_factory=list)
     chunks_indexed_total: int = 0
     files_indexed_total: int = 0
     last_update_duration_seconds: float = 0.0
-    last_update_timestamp: Optional[datetime] = None
+    last_update_timestamp: datetime | None = None
+
+
+@dataclass
+class WatchMetrics:
+    """
+    Container for watch service metrics.
+
+    Tracks file events received, updates triggered, and error counts
+    for monitoring the file watcher service.
+    """
+
+    events_received: int = 0
+    events_by_type: dict[str, int] = field(default_factory=dict)
+    updates_triggered: int = 0
+    update_duration_ms: list[float] = field(default_factory=list)
+    files_processed_total: int = 0
+    chunks_processed_total: int = 0
+    errors: int = 0
+    last_event_timestamp: datetime | None = None
+    last_update_timestamp: datetime | None = None
 
 
 
 class MetricsCollector:
     """
-    Lightweight in-memory metrics collector for indexing operations.
+    Lightweight in-memory metrics collector for indexing and watch operations.
 
-    Tracks embedding latencies, Qdrant operation durations, and indexing
-    statistics. Provides aggregated metrics with percentile calculations.
+    Tracks embedding latencies, Qdrant operation durations, indexing
+    statistics, and watch service metrics. Provides aggregated metrics
+    with percentile calculations.
     """
 
     # Maximum number of latency samples to retain
@@ -70,6 +90,7 @@ class MetricsCollector:
     def __init__(self) -> None:
         """Initialize the metrics collector with empty metrics."""
         self._metrics = IndexingMetrics()
+        self._watch_metrics = WatchMetrics()
 
     def record_embedding_latency(self, latency_ms: float) -> None:
         """
@@ -116,7 +137,7 @@ class MetricsCollector:
         self._metrics.last_update_duration_seconds = duration_s
         self._metrics.last_update_timestamp = datetime.now()
 
-    def get_metrics(self) -> Dict:
+    def get_metrics(self) -> dict:
         """
         Get aggregated metrics as a dictionary.
 
@@ -128,11 +149,12 @@ class MetricsCollector:
             - files_indexed_total: int
             - update_duration_seconds: float
             - last_update_timestamp: ISO format string or None
+            - watch: Watch service metrics (if any events recorded)
         """
         embedding_latencies = self._metrics.embedding_latency_ms
         qdrant_durations = self._metrics.qdrant_call_duration_ms
 
-        return {
+        result = {
             "embedding_latency_ms": {
                 "avg": (
                     sum(embedding_latencies) / len(embedding_latencies)
@@ -163,6 +185,100 @@ class MetricsCollector:
             ),
         }
 
+        # Include watch metrics if any events have been recorded
+        if self._watch_metrics.events_received > 0:
+            result["watch"] = self.get_watch_metrics()
+
+        return result
+
+    def record_watch_event(self, event_type: str) -> None:
+        """
+        Record a file watch event.
+
+        Args:
+            event_type: Type of event (created, modified, deleted, moved)
+        """
+        self._watch_metrics.events_received += 1
+        self._watch_metrics.events_by_type[event_type] = (
+            self._watch_metrics.events_by_type.get(event_type, 0) + 1
+        )
+        self._watch_metrics.last_event_timestamp = datetime.now()
+
+    def record_watch_update(
+        self, duration_ms: float, files_processed: int, chunks_processed: int
+    ) -> None:
+        """
+        Record a watch-triggered incremental update.
+
+        Args:
+            duration_ms: Update duration in milliseconds
+            files_processed: Number of files processed in the update
+            chunks_processed: Number of chunks processed in the update
+        """
+        self._watch_metrics.updates_triggered += 1
+        self._watch_metrics.update_duration_ms.append(duration_ms)
+        self._watch_metrics.files_processed_total += files_processed
+        self._watch_metrics.chunks_processed_total += chunks_processed
+        self._watch_metrics.last_update_timestamp = datetime.now()
+
+        # Trim to max samples to prevent unbounded memory growth
+        if len(self._watch_metrics.update_duration_ms) > self.MAX_LATENCY_SAMPLES:
+            self._watch_metrics.update_duration_ms = (
+                self._watch_metrics.update_duration_ms[-self.MAX_LATENCY_SAMPLES:]
+            )
+
+    def record_watch_error(self) -> None:
+        """Record a watch service error."""
+        self._watch_metrics.errors += 1
+
+    def get_watch_metrics(self) -> dict:
+        """
+        Get aggregated watch metrics as a dictionary.
+
+        Returns:
+            Dictionary containing:
+            - events_received: Total events received
+            - events_by_type: Breakdown by event type
+            - updates_triggered: Total updates triggered
+            - update_duration_ms: {avg, p50, p95, count}
+            - files_processed_total: Total files processed
+            - chunks_processed_total: Total chunks processed
+            - errors: Total error count
+            - last_event_timestamp: ISO format string or None
+            - last_update_timestamp: ISO format string or None
+        """
+        update_durations = self._watch_metrics.update_duration_ms
+
+        return {
+            "events_received": self._watch_metrics.events_received,
+            "events_by_type": dict(self._watch_metrics.events_by_type),
+            "updates_triggered": self._watch_metrics.updates_triggered,
+            "update_duration_ms": {
+                "avg": (
+                    sum(update_durations) / len(update_durations)
+                    if update_durations
+                    else 0.0
+                ),
+                "p50": calculate_percentile(update_durations, 50),
+                "p95": calculate_percentile(update_durations, 95),
+                "count": len(update_durations),
+            },
+            "files_processed_total": self._watch_metrics.files_processed_total,
+            "chunks_processed_total": self._watch_metrics.chunks_processed_total,
+            "errors": self._watch_metrics.errors,
+            "last_event_timestamp": (
+                self._watch_metrics.last_event_timestamp.isoformat()
+                if self._watch_metrics.last_event_timestamp
+                else None
+            ),
+            "last_update_timestamp": (
+                self._watch_metrics.last_update_timestamp.isoformat()
+                if self._watch_metrics.last_update_timestamp
+                else None
+            ),
+        }
+
     def reset(self) -> None:
         """Reset all metrics to initial state. Useful for testing."""
         self._metrics = IndexingMetrics()
+        self._watch_metrics = WatchMetrics()

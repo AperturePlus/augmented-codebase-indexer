@@ -1,6 +1,6 @@
 """Property-based tests for chunker line accuracy and fixed-size bounds."""
 
-from hypothesis import assume, given, settings, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from aci.core.ast_parser import TreeSitterParser

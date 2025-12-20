@@ -5,7 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tests.path_utils_strategies import WINDOWS_RESERVED
 

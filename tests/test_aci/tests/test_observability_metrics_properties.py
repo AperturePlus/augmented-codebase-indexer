@@ -9,7 +9,6 @@ from hypothesis import strategies as st
 
 from aci.services.metrics_collector import MetricsCollector
 
-
 # Strategies for metrics tests
 latency_strategy = st.floats(min_value=0.0, max_value=10000.0, allow_nan=False)
 chunk_count_strategy = st.integers(min_value=0, max_value=1000)

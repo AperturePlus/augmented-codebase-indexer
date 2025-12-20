@@ -1,5 +1,5 @@
 """
-Service Layer - IndexingService, SearchService, EvaluationService, and ServicesContainer.
+Service Layer - IndexingService, SearchService, EvaluationService, WatchService, and ServicesContainer.
 """
 
 from aci.services.container import ServicesContainer, create_services
@@ -11,16 +11,22 @@ from aci.services.indexing_service import (
     IndexingResult,
     IndexingService,
 )
-from aci.services.reranker import (
-    OpenAICompatibleReranker,
-    SimpleReranker,
-)
 from aci.services.repository_resolver import (
     RepositoryResolution,
     resolve_repository,
 )
+from aci.services.reranker import (
+    OpenAICompatibleReranker,
+    SimpleReranker,
+)
 from aci.services.search_service import SearchService
 from aci.services.search_types import RerankerInterface, SearchMode
+from aci.services.watch_service import (
+    PathValidationError,
+    WatchService,
+    WatchServiceError,
+    WatchStats,
+)
 
 __all__ = [
     # Container and factory
@@ -39,4 +45,9 @@ __all__ = [
     "SimpleReranker",
     "EvaluationService",
     "EvaluationResult",
+    # Watch service
+    "WatchService",
+    "WatchServiceError",
+    "PathValidationError",
+    "WatchStats",
 ]

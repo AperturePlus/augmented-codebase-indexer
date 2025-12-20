@@ -178,11 +178,11 @@ class TestContextPassedToHandlers:
 
         When tool name is unknown, call_tool SHALL return an error message.
         """
+        from aci.core.chunker import create_chunker
         from aci.core.config import ACIConfig
+        from aci.core.file_scanner import FileScanner
         from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
         from aci.infrastructure.metadata_store import IndexMetadataStore
-        from aci.core.chunker import create_chunker
-        from aci.core.file_scanner import FileScanner
         from aci.services import IndexingService, SearchService
 
         # Create minimal context

@@ -4,7 +4,6 @@ Low-level SQL query executor for metadata store.
 
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
 
 
 def _now_with_tz() -> datetime:
@@ -31,11 +30,11 @@ class MetadataQueryExecutor:
     # Indexed Files Operations
     # ─────────────────────────────────────────────────────────────────
 
-    def get_file(self, file_path: str) -> Optional[sqlite3.Row]:
+    def get_file(self, file_path: str) -> sqlite3.Row | None:
         """Get a single indexed file by path."""
         cursor = self._conn.execute(
             """
-            SELECT file_path, content_hash, language, line_count, 
+            SELECT file_path, content_hash, language, line_count,
                    chunk_count, indexed_at, modified_time
             FROM indexed_files WHERE file_path = ?
             """,
@@ -56,8 +55,8 @@ class MetadataQueryExecutor:
         """Insert or update a single file."""
         self._conn.execute(
             """
-            INSERT INTO indexed_files 
-                (file_path, content_hash, language, line_count, 
+            INSERT INTO indexed_files
+                (file_path, content_hash, language, line_count,
                  chunk_count, indexed_at, modified_time)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -72,12 +71,12 @@ class MetadataQueryExecutor:
         )
         self._conn.commit()
 
-    def upsert_files_batch(self, files: List[Tuple[str, str, str, int, int, str, float]]) -> None:
+    def upsert_files_batch(self, files: list[tuple[str, str, str, int, int, str, float]]) -> None:
         """Batch insert or update files."""
         self._conn.executemany(
             """
-            INSERT INTO indexed_files 
-                (file_path, content_hash, language, line_count, 
+            INSERT INTO indexed_files
+                (file_path, content_hash, language, line_count,
                  chunk_count, indexed_at, modified_time)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -100,7 +99,7 @@ class MetadataQueryExecutor:
         self._conn.commit()
         return cursor.rowcount
 
-    def delete_files_batch(self, file_paths: List[str]) -> int:
+    def delete_files_batch(self, file_paths: list[str]) -> int:
         """Batch delete files, returns rowcount."""
         cursor = self._conn.executemany(
             "DELETE FROM indexed_files WHERE file_path = ?",
@@ -109,23 +108,37 @@ class MetadataQueryExecutor:
         self._conn.commit()
         return cursor.rowcount
 
-    def get_all_files(self) -> List[sqlite3.Row]:
+    def get_all_files(self) -> list[sqlite3.Row]:
         """Get all indexed files."""
         cursor = self._conn.execute(
             """
-            SELECT file_path, content_hash, language, line_count, 
+            SELECT file_path, content_hash, language, line_count,
                    chunk_count, indexed_at, modified_time
             FROM indexed_files
             """
         )
         return cursor.fetchall()
 
-    def get_all_file_hashes(self) -> Dict[str, str]:
+    def get_all_file_hashes(self) -> dict[str, str]:
         """Get all file paths and their content hashes."""
         cursor = self._conn.execute("SELECT file_path, content_hash FROM indexed_files")
         return {row["file_path"]: row["content_hash"] for row in cursor.fetchall()}
 
-    def get_files_older_than(self, cutoff_iso: str) -> List[str]:
+    def get_file_hashes_by_prefix(self, file_path_prefix: str) -> dict[str, str]:
+        """
+        Get file paths and hashes for files under a given path prefix.
+
+        Args:
+            file_path_prefix: Prefix string including a trailing path separator,
+                e.g. "/repo/root/" or "C:\\repo\\root\\".
+        """
+        cursor = self._conn.execute(
+            "SELECT file_path, content_hash FROM indexed_files WHERE file_path LIKE ?",
+            (f"{file_path_prefix}%",),
+        )
+        return {row["file_path"]: row["content_hash"] for row in cursor.fetchall()}
+
+    def get_files_older_than(self, cutoff_iso: str) -> list[str]:
         """Get file paths indexed before cutoff date."""
         cursor = self._conn.execute(
             "SELECT file_path FROM indexed_files WHERE indexed_at < ?",
@@ -133,7 +146,7 @@ class MetadataQueryExecutor:
         )
         return [row["file_path"] for row in cursor.fetchall()]
 
-    def get_stale_files_raw(self) -> List[Tuple[str, float, str]]:
+    def get_stale_files_raw(self) -> list[tuple[str, float, str]]:
         """Get raw data for stale file calculation."""
         cursor = self._conn.execute(
             "SELECT file_path, modified_time, indexed_at FROM indexed_files"
@@ -148,7 +161,7 @@ class MetadataQueryExecutor:
         """Get aggregate statistics."""
         cursor = self._conn.execute(
             """
-            SELECT 
+            SELECT
                 COUNT(*) as total_files,
                 COALESCE(SUM(chunk_count), 0) as total_chunks,
                 COALESCE(SUM(line_count), 0) as total_lines
@@ -157,7 +170,7 @@ class MetadataQueryExecutor:
         )
         return cursor.fetchone()
 
-    def get_language_breakdown(self) -> Dict[str, int]:
+    def get_language_breakdown(self) -> dict[str, int]:
         """Get file count by language."""
         cursor = self._conn.execute(
             "SELECT language, COUNT(*) as count FROM indexed_files GROUP BY language"
@@ -169,7 +182,7 @@ class MetadataQueryExecutor:
     # ─────────────────────────────────────────────────────────────────
 
     def upsert_index_info(
-        self, index_id: str, root_path: str, collection_name: Optional[str]
+        self, index_id: str, root_path: str, collection_name: str | None
     ) -> None:
         """Insert or update index info."""
         now = _now_str()
@@ -186,7 +199,7 @@ class MetadataQueryExecutor:
         )
         self._conn.commit()
 
-    def get_index_info(self, index_id: str) -> Optional[sqlite3.Row]:
+    def get_index_info(self, index_id: str) -> sqlite3.Row | None:
         """Get index info by ID."""
         cursor = self._conn.execute(
             """
@@ -197,7 +210,7 @@ class MetadataQueryExecutor:
         )
         return cursor.fetchone()
 
-    def get_all_repositories(self) -> List[sqlite3.Row]:
+    def get_all_repositories(self) -> list[sqlite3.Row]:
         """Get all registered repositories."""
         cursor = self._conn.execute(
             """
@@ -232,14 +245,14 @@ class MetadataQueryExecutor:
         self._conn.commit()
         return cursor.rowcount
 
-    def get_pending_batch(self, batch_id: str) -> Optional[sqlite3.Row]:
+    def get_pending_batch(self, batch_id: str) -> sqlite3.Row | None:
         """Get a pending batch by ID."""
         cursor = self._conn.execute(
             "SELECT file_paths FROM pending_batches WHERE batch_id = ?", (batch_id,)
         )
         return cursor.fetchone()
 
-    def get_all_pending_batches(self) -> List[sqlite3.Row]:
+    def get_all_pending_batches(self) -> list[sqlite3.Row]:
         """Get all pending batches."""
         cursor = self._conn.execute(
             """
@@ -249,7 +262,7 @@ class MetadataQueryExecutor:
         )
         return cursor.fetchall()
 
-    def delete_files_in_list(self, file_paths: List[str]) -> None:
+    def delete_files_in_list(self, file_paths: list[str]) -> None:
         """Delete files by path list."""
         if file_paths:
             placeholders = ",".join("?" * len(file_paths))

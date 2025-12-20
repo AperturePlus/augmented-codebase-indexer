@@ -4,7 +4,6 @@ Property-based tests for SymlinkValidator symlink security validation.
 **Feature: gitignore-path-traversal-fix**
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -13,8 +12,7 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from aci.core.symlink_validator import SymlinkValidator, SymlinkValidationResult
-
+from aci.core.symlink_validator import SymlinkValidator
 
 # Skip all tests on Windows - symlinks require admin privileges
 pytestmark = pytest.mark.skipif(

@@ -6,14 +6,11 @@
 """
 
 import asyncio
-from dataclasses import dataclass
-from typing import Optional
 
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from aci.infrastructure.vector_store import SearchResult
-
 
 # Valid artifact types as defined in the design
 VALID_ARTIFACT_TYPES = ["chunk", "function_summary", "class_summary", "file_summary"]
@@ -99,17 +96,17 @@ def search_result_with_artifact_type(draw, artifact_type: str = None):
     """Generate a SearchResult with a specific artifact type."""
     if artifact_type is None:
         artifact_type = draw(artifact_type_strategy)
-    
+
     chunk_id = draw(st.text(
         alphabet=st.characters(whitelist_categories=("L", "N")),
         min_size=5,
         max_size=20,
     ).filter(lambda x: x.strip()))
-    
+
     file_path = f"test_{draw(st.integers(min_value=1, max_value=100))}.py"
     start_line = draw(st.integers(min_value=1, max_value=100))
     end_line = start_line + draw(st.integers(min_value=1, max_value=50))
-    
+
     return SearchResult(
         chunk_id=chunk_id,
         file_path=file_path,
@@ -137,7 +134,7 @@ class TestArtifactTypeFiltering:
     """
     **Feature: service-initialization-refactor, Property 6: Artifact Type Filtering**
     **Validates: Requirements 3.4**
-    
+
     *For any* search with artifact_types specified, all returned results SHALL have
     an artifact_type metadata value contained in the specified set.
     """
@@ -157,18 +154,18 @@ class TestArtifactTypeFiltering:
     ):
         """All returned results should have artifact_type in the filter list."""
         assume(query.strip())
-        
+
         from aci.services.search_service import SearchService
         from aci.services.search_types import SearchMode
-        
+
         mock_vector = MockVectorStore(results=results)
         mock_embedding = MockEmbeddingClient()
-        
+
         search_service = SearchService(
             embedding_client=mock_embedding,
             vector_store=mock_vector,
         )
-        
+
         search_results = run_async(
             search_service.search(
                 query,
@@ -176,7 +173,7 @@ class TestArtifactTypeFiltering:
                 artifact_types=filter_types,
             )
         )
-        
+
         # Verify all returned results have artifact_type in the filter list
         for result in search_results:
             assert "artifact_type" in result.metadata, (
@@ -202,18 +199,18 @@ class TestArtifactTypeFiltering:
     ):
         """Filtering by a single artifact type should only return that type."""
         assume(query.strip())
-        
+
         from aci.services.search_service import SearchService
         from aci.services.search_types import SearchMode
-        
+
         mock_vector = MockVectorStore(results=results)
         mock_embedding = MockEmbeddingClient()
-        
+
         search_service = SearchService(
             embedding_client=mock_embedding,
             vector_store=mock_vector,
         )
-        
+
         search_results = run_async(
             search_service.search(
                 query,
@@ -221,7 +218,7 @@ class TestArtifactTypeFiltering:
                 artifact_types=[single_type],
             )
         )
-        
+
         # All results should have the single specified artifact type
         for result in search_results:
             assert result.metadata.get("artifact_type") == single_type, (
@@ -234,7 +231,7 @@ class TestInvalidArtifactTypeError:
     """
     **Feature: service-initialization-refactor, Property 7: Invalid Artifact Type Error**
     **Validates: Requirements 3.5**
-    
+
     *For any* search with an invalid artifact type, the system SHALL return an error
     message containing all valid artifact type names.
     """
@@ -249,21 +246,21 @@ class TestInvalidArtifactTypeError:
         """HTTP endpoint should return error listing valid types for invalid input."""
         assume(invalid_type.strip())
         assume(invalid_type not in VALID_ARTIFACT_TYPES)
-        
+
         # Simulate HTTP validation logic (from http_server.py)
         valid_artifact_types = ["chunk", "function_summary", "class_summary", "file_summary"]
         artifact_type = [invalid_type]
-        
+
         invalid_types = [t for t in artifact_type if t not in valid_artifact_types]
-        
+
         assert invalid_types, "Should detect invalid type"
-        
+
         # Construct error message as HTTP server does
         error_message = (
             f"Invalid artifact type(s): {invalid_types}. "
             f"Valid types are: {valid_artifact_types}"
         )
-        
+
         # Verify error message contains all valid types
         for valid_type in VALID_ARTIFACT_TYPES:
             assert valid_type in error_message, (
@@ -280,21 +277,21 @@ class TestInvalidArtifactTypeError:
         """MCP handler should return error listing valid types for invalid input."""
         assume(invalid_type.strip())
         assume(invalid_type not in VALID_ARTIFACT_TYPES)
-        
+
         # Simulate MCP validation logic (from mcp/handlers.py)
         valid_artifact_types = {"chunk", "function_summary", "class_summary", "file_summary"}
         artifact_types = [invalid_type]
-        
+
         invalid_types = [t for t in artifact_types if t not in valid_artifact_types]
-        
+
         assert invalid_types, "Should detect invalid type"
-        
+
         # Construct error message as MCP handler does
         error_message = (
             f"Error: Invalid artifact type(s): {', '.join(invalid_types)}. "
             f"Valid types: {', '.join(sorted(valid_artifact_types))}"
         )
-        
+
         # Verify error message contains all valid types
         for valid_type in VALID_ARTIFACT_TYPES:
             assert valid_type in error_message, (
@@ -311,21 +308,21 @@ class TestInvalidArtifactTypeError:
         """CLI should return error listing valid types for invalid input."""
         assume(invalid_type.strip())
         assume(invalid_type not in VALID_ARTIFACT_TYPES)
-        
+
         # Simulate CLI validation logic (from cli/__init__.py)
         valid_artifact_types = {"chunk", "function_summary", "class_summary", "file_summary"}
         artifact_type = [invalid_type]
-        
+
         invalid_types = [t for t in artifact_type if t not in valid_artifact_types]
-        
+
         assert invalid_types, "Should detect invalid type"
-        
+
         # Construct error message as CLI does
         error_message = (
             f"Invalid artifact type(s): {', '.join(invalid_types)}. "
             f"Valid types: {', '.join(sorted(valid_artifact_types))}"
         )
-        
+
         # Verify error message contains all valid types
         for valid_type in VALID_ARTIFACT_TYPES:
             assert valid_type in error_message, (
@@ -344,13 +341,13 @@ class TestInvalidArtifactTypeError:
         # Filter out any invalid types that happen to match valid ones
         invalid_types = [t for t in invalid_types if t not in VALID_ARTIFACT_TYPES]
         assume(invalid_types)  # Need at least one invalid type
-        
+
         mixed_types = valid_types + invalid_types
-        
+
         # Simulate validation logic
         valid_artifact_types = set(VALID_ARTIFACT_TYPES)
         detected_invalid = [t for t in mixed_types if t not in valid_artifact_types]
-        
+
         # Should detect exactly the invalid types we added
         assert set(detected_invalid) == set(invalid_types), (
             f"Should detect invalid types {invalid_types}, got {detected_invalid}"

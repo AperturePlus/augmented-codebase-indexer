@@ -5,13 +5,20 @@ Provides in-memory implementations of infrastructure interfaces
 for use in unit and integration tests without external dependencies.
 """
 
+from __future__ import annotations
+
 import fnmatch
 import hashlib
 import math
-from typing import Dict, List, Optional
+from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aci.infrastructure.embedding import EmbeddingClientInterface
-from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface, is_glob_pattern
+from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface
+
+if TYPE_CHECKING:
+    from aci.core.file_events import FileEvent
 
 
 class InMemoryVectorStore(VectorStoreInterface):
@@ -34,17 +41,17 @@ class InMemoryVectorStore(VectorStoreInterface):
         self._vector_size = vector_size
         self._collection_name = collection_name
         # Multi-collection storage: collection_name -> {chunk_id -> data}
-        self._collections: Dict[str, Dict[str, tuple[List[float], dict]]] = {}
+        self._collections: dict[str, dict[str, tuple[list[float], dict]]] = {}
         # Legacy single-collection references for backward compatibility
-        self._vectors: Dict[str, List[float]] = {}
-        self._payloads: Dict[str, dict] = {}
+        self._vectors: dict[str, list[float]] = {}
+        self._payloads: dict[str, dict] = {}
 
     async def upsert(
         self,
         chunk_id: str,
-        vector: List[float],
+        vector: list[float],
         payload: dict,
-        collection_name: Optional[str] = None,
+        collection_name: str | None = None,
     ) -> None:
         """Insert or update a vector with its payload."""
         target_collection = collection_name or self._collection_name
@@ -60,19 +67,19 @@ class InMemoryVectorStore(VectorStoreInterface):
 
     async def upsert_batch(
         self,
-        points: List[tuple[str, List[float], dict]],
-        collection_name: Optional[str] = None,
+        points: list[tuple[str, list[float], dict]],
+        collection_name: str | None = None,
     ) -> None:
         """Batch insert or update vectors."""
         for chunk_id, vector, payload in points:
             await self.upsert(chunk_id, vector, payload, collection_name=collection_name)
 
-    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: str | None = None) -> int:
         """Delete all vectors for a file, return count deleted."""
         target_collection = collection_name or self._collection_name
         collection_data = self._collections.get(target_collection, {})
         to_delete = [
-            cid for cid, (_, payload) in collection_data.items() 
+            cid for cid, (_, payload) in collection_data.items()
             if payload.get("file_path") == file_path
         ]
         for cid in to_delete:
@@ -86,12 +93,12 @@ class InMemoryVectorStore(VectorStoreInterface):
 
     async def search(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 10,
-        file_filter: Optional[str] = None,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None = None,
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         """
         Search for similar vectors using cosine similarity.
 
@@ -110,10 +117,10 @@ class InMemoryVectorStore(VectorStoreInterface):
             List of SearchResult sorted by score descending
         """
         results = []
-        
+
         # Use provided collection or fall back to instance default
         target_collection = collection_name or self._collection_name
-        
+
         # Get data from the target collection
         collection_data = self._collections.get(target_collection, {})
 
@@ -123,7 +130,7 @@ class InMemoryVectorStore(VectorStoreInterface):
             # Apply file filter if specified
             if file_filter and not fnmatch.fnmatch(file_path, file_filter):
                 continue
-            
+
             # Apply artifact type filter if specified
             if artifact_types:
                 artifact_type = payload.get("artifact_type", "chunk")
@@ -158,7 +165,7 @@ class InMemoryVectorStore(VectorStoreInterface):
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
-    async def get_stats(self, collection_name: Optional[str] = None) -> dict:
+    async def get_stats(self, collection_name: str | None = None) -> dict:
         """
         Get storage statistics.
 
@@ -173,11 +180,11 @@ class InMemoryVectorStore(VectorStoreInterface):
         # Use provided collection or fall back to instance default
         target_collection = collection_name or self._collection_name
         collection_data = self._collections.get(target_collection, {})
-        
-        unique_files = set(
-            payload.get("file_path", "") 
+
+        unique_files = {
+            payload.get("file_path", "")
             for _, payload in collection_data.values()
-        )
+        }
         return {
             "total_vectors": len(collection_data),
             "total_files": len(unique_files),
@@ -185,7 +192,7 @@ class InMemoryVectorStore(VectorStoreInterface):
             "vector_size": self._vector_size,
         }
 
-    async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
+    async def get_by_id(self, chunk_id: str) -> SearchResult | None:
         """Get a specific chunk by ID."""
         collection_data = self._collections.get(self._collection_name, {})
         if chunk_id not in collection_data:
@@ -230,7 +237,7 @@ class InMemoryVectorStore(VectorStoreInterface):
             return True
         return False
 
-    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+    async def get_all_file_paths(self, collection_name: str | None = None) -> list[str]:
         """
         Get all unique file paths in the store.
 
@@ -245,18 +252,18 @@ class InMemoryVectorStore(VectorStoreInterface):
         # Use provided collection or fall back to instance default
         target_collection = collection_name or self._collection_name
         collection_data = self._collections.get(target_collection, {})
-        unique_files = set(
-            payload.get("file_path", "") 
+        unique_files = {
+            payload.get("file_path", "")
             for _, payload in collection_data.values()
-        )
+        }
         return [f for f in unique_files if f]  # Filter out empty strings
 
-    def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
+    def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
         """Calculate cosine similarity between two vectors."""
         if len(a) != len(b):
             return 0.0
 
-        dot_product = sum(x * y for x, y in zip(a, b))
+        dot_product = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
 
@@ -270,16 +277,16 @@ class InMemoryVectorStore(VectorStoreInterface):
         self._vectors.clear()
         self._payloads.clear()
         self._collections.clear()
-    
+
     def set_collection(self, collection_name: str) -> None:
         """
         Switch to a different collection.
-        
+
         Args:
             collection_name: Name of the collection to use.
         """
         self._collection_name = collection_name
-    
+
     def get_collection_name(self) -> str:
         """Get the current collection name."""
         return self._collection_name
@@ -306,7 +313,7 @@ class LocalEmbeddingClient(EmbeddingClientInterface):
         """Return the embedding vector dimension."""
         return self._dimension
 
-    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Generate deterministic embeddings for texts.
 
@@ -321,7 +328,7 @@ class LocalEmbeddingClient(EmbeddingClientInterface):
         """
         return [self._text_to_vector(text) for text in texts]
 
-    def _text_to_vector(self, text: str) -> List[float]:
+    def _text_to_vector(self, text: str) -> list[float]:
         """
         Convert text to a deterministic vector.
 
@@ -356,10 +363,95 @@ class LocalEmbeddingClient(EmbeddingClientInterface):
 
         return vector
 
-    def embed_sync(self, text: str) -> List[float]:
+    def embed_sync(self, text: str) -> list[float]:
         """
         Synchronous embedding for single text.
 
         Convenience method for testing.
         """
         return self._text_to_vector(text)
+
+
+class FakeFileWatcher:
+    """
+    Fake file watcher for testing.
+
+    Allows manual triggering of file events without actual file system monitoring.
+    Implements the same interface as FileWatcher for use in tests.
+    """
+
+    def __init__(
+        self,
+        extensions: set[str] | None = None,
+        ignore_patterns: list[str] | None = None,
+        follow_symlinks: bool = False,
+    ):
+        """
+        Initialize the fake file watcher.
+
+        Args:
+            extensions: Set of file extensions to watch (ignored in fake)
+            ignore_patterns: List of patterns to ignore (ignored in fake)
+            follow_symlinks: Whether to follow symlinks (ignored in fake)
+        """
+
+
+        self._extensions = extensions or {".py", ".js"}
+        self._ignore_patterns = ignore_patterns or []
+        self._follow_symlinks = follow_symlinks
+        self._callback: Callable[[FileEvent], None] | None = None
+        self._watch_path: Path | None = None
+        self._running = False
+        self._events: list[FileEvent] = []
+
+    def start(self, path: Path, callback: Callable[[FileEvent], None]) -> None:
+        """
+        Start the fake watcher.
+
+        Args:
+            path: Directory path to watch
+            callback: Function to call when events are triggered
+        """
+        from pathlib import Path
+
+        if self._running:
+            raise RuntimeError("File watcher is already running")
+
+        self._watch_path = Path(path).resolve()
+        self._callback = callback
+        self._running = True
+
+    def stop(self) -> None:
+        """Stop the fake watcher."""
+        self._running = False
+        self._callback = None
+        self._watch_path = None
+
+    def is_running(self) -> bool:
+        """Check if the fake watcher is running."""
+        return self._running
+
+    def trigger_event(self, event: FileEvent) -> None:
+        """
+        Manually trigger a file event.
+
+        This is the main testing interface - allows tests to simulate
+        file system events without actual file operations.
+
+        Args:
+            event: The FileEvent to trigger
+        """
+        if not self._running:
+            raise RuntimeError("File watcher is not running")
+
+        self._events.append(event)
+        if self._callback is not None:
+            self._callback(event)
+
+    def get_triggered_events(self) -> list[FileEvent]:
+        """Get all events that have been triggered."""
+        return list(self._events)
+
+    def clear_events(self) -> None:
+        """Clear the list of triggered events."""
+        self._events.clear()

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 class IndexingOperations:
     """
     Handles indexing-related REPL commands.
-    
+
     Provides index, update, and reset operations with both
     compact and verbose progress display modes.
     """
@@ -53,7 +53,7 @@ class IndexingOperations:
     ):
         """
         Initialize indexing operations.
-        
+
         Args:
             services: Services container with initialized services.
             console: Rich console for output.
@@ -78,7 +78,7 @@ class IndexingOperations:
     def run_index(self, path: str) -> None:
         """
         Run the index command with path validation.
-        
+
         Args:
             path: Directory path to index.
         """
@@ -114,10 +114,10 @@ class IndexingOperations:
     def _run_index_compact(self, path: Path) -> "IndexResult":
         """
         Run index with compact output (2 lines max).
-        
+
         Args:
             path: Directory path to index.
-            
+
         Returns:
             IndexResult from the indexing service.
         """
@@ -157,10 +157,10 @@ class IndexingOperations:
     def _run_index_verbose(self, path: Path) -> "IndexResult":
         """
         Run index with verbose output (multi-phase progress + log window).
-        
+
         Args:
             path: Directory path to index.
-            
+
         Returns:
             IndexResult from the indexing service.
         """
@@ -242,7 +242,7 @@ class IndexingOperations:
     def run_update(self, path: str) -> None:
         """
         Run the update command with path validation.
-        
+
         Args:
             path: Directory path to update.
         """
@@ -279,10 +279,10 @@ class IndexingOperations:
     def _run_update_compact(self, path: Path) -> "UpdateResult":
         """
         Run update with compact output.
-        
+
         Args:
             path: Directory path to update.
-            
+
         Returns:
             UpdateResult from the indexing service.
         """
@@ -322,10 +322,10 @@ class IndexingOperations:
     def _run_update_verbose(self, path: Path) -> "UpdateResult":
         """
         Run update with verbose output.
-        
+
         Args:
             path: Directory path to update.
-            
+
         Returns:
             UpdateResult from the indexing service.
         """
@@ -418,7 +418,7 @@ class IndexingOperations:
             repos = self.services.metadata_store.get_repositories()
             deleted_collections = []
             failed_collections = []
-            
+
             # Delete each repository's collection
             for repo in repos:
                 collection_name = repo.get("collection_name")
@@ -434,7 +434,7 @@ class IndexingOperations:
                             deleted_collections.append(collection_name)
                     except Exception as e:
                         failed_collections.append((collection_name, str(e)))
-            
+
             # Also delete the default collection if it exists and wasn't already deleted
             default_collection = self.services.config.vector_store.collection_name
             if default_collection not in deleted_collections:
@@ -449,12 +449,12 @@ class IndexingOperations:
                         deleted_collections.append(default_collection)
                 except Exception as e:
                     failed_collections.append((default_collection, str(e)))
-            
+
             if deleted_collections:
                 self.console.print(f"  [green]✓[/green] Deleted {len(deleted_collections)} collection(s).")
             else:
                 self.console.print("  [yellow]![/yellow] No collections found to delete.")
-            
+
             if failed_collections:
                 self.console.print(f"  [yellow]![/yellow] Failed to delete {len(failed_collections)} collection(s):")
                 for name, error in failed_collections:

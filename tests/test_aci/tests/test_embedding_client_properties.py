@@ -159,7 +159,7 @@ def test_embedding_order_preserved(texts: list[str]):
     assert len(embeddings) == len(texts)
 
     # Verify each embedding corresponds to correct text
-    for i, (text, embedding) in enumerate(zip(texts, embeddings)):
+    for i, (text, embedding) in enumerate(zip(texts, embeddings, strict=False)):
         expected_value = hash(text) % 1000 / 1000.0
         assert embedding[0] == expected_value, (
             f"Embedding {i} doesn't match expected value for text"
@@ -306,7 +306,6 @@ def test_complete_processing_with_fallback(
     *For any* list of texts where at least one valid batch size exists that succeeds,
     embed_batch SHALL return embeddings for all input texts (output length equals input length).
     """
-    from aci.infrastructure.embedding import BatchSizeError
 
     # Ensure fail_threshold < initial_batch_size for meaningful test
     fail_threshold = min(fail_threshold, initial_batch_size - 1)

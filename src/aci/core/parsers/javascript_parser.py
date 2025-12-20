@@ -5,10 +5,10 @@ Extracts functions, classes, and methods from JS/TS code using Tree-sitter.
 Includes JSDoc comment extraction.
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
-from aci.core.parsers.base import LanguageParser, ASTNode
 from aci.core.comment_extractor import extract_jsdoc
+from aci.core.parsers.base import ASTNode, LanguageParser
 
 
 class JavaScriptParser(LanguageParser):
@@ -22,7 +22,7 @@ class JavaScriptParser(LanguageParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_javascript"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
         """Extract functions, classes, and methods from JavaScript code."""
         nodes = []
         self._traverse(root_node, content, nodes, parent_class=None, root=root_node)
@@ -32,8 +32,8 @@ class JavaScriptParser(LanguageParser):
         self,
         node: Any,
         content: str,
-        nodes: List[ASTNode],
-        parent_class: Optional[str],
+        nodes: list[ASTNode],
+        parent_class: str | None,
         root: Any,
     ) -> None:
         """Recursively traverse JavaScript AST and extract nodes."""
@@ -70,8 +70,8 @@ class JavaScriptParser(LanguageParser):
             self._traverse(child, content, nodes, parent_class, root)
 
     def _extract_function(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """Extract a JavaScript function declaration."""
         name = None
         for child in node.children:
@@ -97,8 +97,8 @@ class JavaScriptParser(LanguageParser):
         )
 
     def _extract_arrow_function(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """Extract an arrow function from variable declaration."""
         name = None
         has_arrow = False
@@ -128,7 +128,7 @@ class JavaScriptParser(LanguageParser):
             docstring=docstring,
         )
 
-    def _extract_class(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_class(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a JavaScript class declaration."""
         name = None
         for child in node.children:
@@ -154,8 +154,8 @@ class JavaScriptParser(LanguageParser):
         )
 
     def _extract_method(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """Extract a method from a JavaScript class."""
         name = None
         for child in node.children:

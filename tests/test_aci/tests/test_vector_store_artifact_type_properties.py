@@ -98,7 +98,7 @@ def test_stored_artifacts_have_required_fields(
     assert result.file_path == payload["file_path"], "file_path mismatch"
     assert result.start_line == payload["start_line"], "start_line mismatch"
     assert result.end_line == payload["end_line"], "end_line mismatch"
-    
+
     # artifact_type should be in metadata
     assert "artifact_type" in result.metadata, "artifact_type not in metadata"
     assert result.metadata["artifact_type"] == payload["artifact_type"], "artifact_type mismatch"
@@ -164,13 +164,13 @@ def artifacts_with_types_strategy(draw):
     # Generate a smaller, more efficient list of artifacts
     num_artifacts = draw(st.integers(min_value=4, max_value=8))
     artifacts = []
-    
+
     for i in range(num_artifacts):
         # Cycle through artifact types to ensure coverage
         artifact_type = ARTIFACT_TYPES[i % len(ARTIFACT_TYPES)]
         chunk_id = f"artifact_{i}_{draw(st.integers(min_value=0, max_value=9999))}"
         # Use simpler vector generation
-        vector = [draw(st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False)) 
+        vector = [draw(st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False))
                   for _ in range(128)]
         start_line = draw(st.integers(min_value=0, max_value=1000))
         payload = {
@@ -212,7 +212,7 @@ def test_artifact_type_filter_works_correctly(
         if chunk_id not in seen_ids:
             seen_ids.add(chunk_id)
             unique_artifacts.append((chunk_id, vector, payload))
-    
+
     if not unique_artifacts:
         return  # Skip if no artifacts
 
@@ -280,7 +280,7 @@ def test_default_search_returns_all_artifact_types(
         if chunk_id not in seen_ids:
             seen_ids.add(chunk_id)
             unique_artifacts.append((chunk_id, vector, payload))
-    
+
     if not unique_artifacts:
         return  # Skip if no artifacts
 
@@ -306,7 +306,7 @@ def test_default_search_returns_all_artifact_types(
 
     # Collect artifact types from stored data
     stored_types = {p["artifact_type"] for _, _, p in unique_artifacts}
-    
+
     # Collect artifact types from results
     result_types = {r.metadata["artifact_type"] for r in results}
 
@@ -343,7 +343,7 @@ def test_search_results_include_artifact_type(
         if chunk_id not in seen_ids:
             seen_ids.add(chunk_id)
             unique_artifacts.append((chunk_id, vector, payload))
-    
+
     if not unique_artifacts:
         return  # Skip if no artifacts
 

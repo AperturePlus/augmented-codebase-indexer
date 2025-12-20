@@ -12,11 +12,11 @@ is split across submodules:
 
 import asyncio
 import os
-import sys
 
 # Load .env BEFORE importing handlers (so ACI_ENV is available)
 # Try multiple locations: CWD, then script directory
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # First try CWD
@@ -32,9 +32,9 @@ if not load_dotenv():
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from aci.mcp.context import MCPContext, create_mcp_context, cleanup_context
-from aci.mcp.tools import list_tools
+from aci.mcp.context import MCPContext, cleanup_context, create_mcp_context
 from aci.mcp.handlers import call_tool
+from aci.mcp.tools import list_tools
 
 # Re-export for backward compatibility
 __all__ = ["app", "list_tools", "call_tool", "main"]
@@ -61,15 +61,15 @@ async def _call_tool(name: str, arguments):
 async def _run_server():
     """Run the MCP server (async implementation)."""
     global _ctx
-    
+
     # Print startup info to stderr (won't interfere with stdio protocol)
     env = os.environ.get("ACI_ENV", "production")
     if env == "development":
-        print(f"[ACI-MCP] Starting in {env} mode (debug enabled)", file=sys.stderr, flush=True)
-    
+        pass
+
     # Create context with all services at startup
     _ctx = create_mcp_context()
-    
+
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(read_stream, write_stream, app.create_initialization_options())

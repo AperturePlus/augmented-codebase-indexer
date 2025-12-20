@@ -17,7 +17,6 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +97,7 @@ class CodebaseRecord:
     collection_name: str
     created_at: str
     updated_at: str
-    last_indexed_at: Optional[str] = None
+    last_indexed_at: str | None = None
 
 
 class CodebaseRegistryError(RuntimeError):
@@ -169,7 +168,7 @@ class CodebaseRegistryStore:
         *,
         metadata_db_path: Path | str,
         collection_name: str,
-        last_indexed_at: Optional[str] = None,
+        last_indexed_at: str | None = None,
     ) -> None:
         self.initialize()
 
@@ -232,7 +231,7 @@ class CodebaseRegistryStore:
         except sqlite3.Error as e:
             raise CodebaseRegistryError(f"Failed to list codebases: {e}") from e
 
-    def find_codebase_for_path(self, path: Path | str) -> Optional[CodebaseRecord]:
+    def find_codebase_for_path(self, path: Path | str) -> CodebaseRecord | None:
         """
         Find the best matching indexed codebase for a given path.
 

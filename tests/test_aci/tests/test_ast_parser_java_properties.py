@@ -2,12 +2,10 @@
 Property-based tests for Java docstring extraction.
 """
 
-import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from aci.core.ast_parser import TreeSitterParser
-
 
 identifier = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",

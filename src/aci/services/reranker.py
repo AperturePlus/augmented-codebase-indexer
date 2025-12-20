@@ -5,7 +5,6 @@ Provides API-based and lightweight rerankers.
 """
 
 import logging
-from typing import List
 
 import httpx
 
@@ -56,9 +55,9 @@ class OpenAICompatibleReranker(RerankerInterface):
     async def rerank(
         self,
         query: str,
-        candidates: List[SearchResult],
+        candidates: list[SearchResult],
         top_k: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         if not candidates:
             return []
 
@@ -148,8 +147,8 @@ class SimpleReranker(RerankerInterface):
     def rerank(
         self,
         query: str,
-        candidates: List[SearchResult],
+        candidates: list[SearchResult],
         top_k: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Return top_k candidates without re-ranking."""
         return candidates[:top_k]

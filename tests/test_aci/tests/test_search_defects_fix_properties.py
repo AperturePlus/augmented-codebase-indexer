@@ -12,9 +12,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
-import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
@@ -28,7 +26,6 @@ from tests.search_service_test_utils import (
     run_async,
 )
 
-
 # =============================================================================
 # Test Helpers
 # =============================================================================
@@ -38,7 +35,7 @@ from tests.search_service_test_utils import (
 class TrackingReranker(RerankerInterface):
     """Reranker that tracks what candidates it receives."""
 
-    received_candidates: List[SearchResult] = None
+    received_candidates: list[SearchResult] = None
     received_top_k: int = 0
 
     def __post_init__(self):
@@ -47,9 +44,9 @@ class TrackingReranker(RerankerInterface):
     def rerank(
         self,
         query: str,
-        candidates: List[SearchResult],
+        candidates: list[SearchResult],
         top_k: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Track candidates and return top_k."""
         self.received_candidates = list(candidates)
         self.received_top_k = top_k
@@ -61,8 +58,8 @@ class TrackingVectorStore:
 
     def __init__(self, base_store):
         self._base = base_store
-        self.last_search_limit: Optional[int] = None
-        self.search_calls: List[dict] = []
+        self.last_search_limit: int | None = None
+        self.search_calls: list[dict] = []
 
     async def search(self, query_vector, limit=10, file_filter=None, collection_name=None, artifact_types=None):
         self.last_search_limit = limit

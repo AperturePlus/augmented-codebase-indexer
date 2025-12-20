@@ -12,12 +12,11 @@ import asyncio
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Set, Tuple
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from aci.core.chunker import Chunker, create_chunker
+from aci.core.chunker import Chunker
 from aci.core.file_scanner import FileScanner
 from aci.core.summary_artifact import ArtifactType
 from aci.core.summary_generator import SummaryGenerator
@@ -93,7 +92,7 @@ def create_indexing_components_with_summaries(temp_dir: Path, db_name: str = "me
 
     collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
     vector_store.set_collection(collection_name)
-    
+
     # Create chunker with summary generator
     tokenizer = TiktokenTokenizer()
     summary_generator = SummaryGenerator(tokenizer)
@@ -115,39 +114,39 @@ def create_indexing_components_with_summaries(temp_dir: Path, db_name: str = "me
 
 def get_artifacts_by_file(
     vector_store: InMemoryVectorStore,
-) -> dict[str, list[Tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str]]]:
     """
     Get all artifacts grouped by file path.
-    
+
     Returns:
         Dict mapping file_path -> list of (artifact_id, artifact_type)
     """
-    result: dict[str, list[Tuple[str, str]]] = {}
+    result: dict[str, list[tuple[str, str]]] = {}
     collection_data = vector_store._collections.get(vector_store._collection_name, {})
-    
+
     for artifact_id, (_, payload) in collection_data.items():
         file_path = payload.get("file_path", "")
         artifact_type = payload.get("artifact_type", "chunk")
         if file_path not in result:
             result[file_path] = []
         result[file_path].append((artifact_id, artifact_type))
-    
+
     return result
 
 
 def get_summary_artifacts_for_file(
     vector_store: InMemoryVectorStore,
     file_path: str,
-) -> list[Tuple[str, str, str]]:
+) -> list[tuple[str, str, str]]:
     """
     Get all summary artifacts for a specific file.
-    
+
     Returns:
         List of (artifact_id, artifact_type, content) tuples
     """
     result = []
     collection_data = vector_store._collections.get(vector_store._collection_name, {})
-    
+
     for artifact_id, (_, payload) in collection_data.items():
         if payload.get("file_path") != file_path:
             continue
@@ -155,7 +154,7 @@ def get_summary_artifacts_for_file(
         if artifact_type != ArtifactType.CHUNK.value:
             content = payload.get("content", "")
             result.append((artifact_id, artifact_type, content))
-    
+
     return result
 
 
@@ -165,11 +164,11 @@ def count_artifacts_by_type(
     """Count artifacts by type in the vector store."""
     counts: dict[str, int] = {}
     collection_data = vector_store._collections.get(vector_store._collection_name, {})
-    
+
     for _, (_, payload) in collection_data.items():
         artifact_type = payload.get("artifact_type", "chunk")
         counts[artifact_type] = counts.get(artifact_type, 0) + 1
-    
+
     return counts
 
 
@@ -178,8 +177,8 @@ class TestReindexingReplacesSummaries:
     **Feature: multi-granularity-indexing, Property 8: Re-indexing replaces summaries**
     **Validates: Requirements 3.3**
 
-    *For any* file that is modified and re-indexed, all previously stored 
-    summary artifacts for that file SHALL be deleted and replaced with 
+    *For any* file that is modified and re-indexed, all previously stored
+    summary artifacts for that file SHALL be deleted and replaced with
     newly generated summaries.
     """
 
@@ -194,7 +193,7 @@ class TestReindexingReplacesSummaries:
     def test_reindexing_replaces_summaries(self, original_content, modified_content):
         """
         Modified files should have old summaries removed and new summaries added.
-        
+
         Property: For any file that is modified and re-indexed, all previously
         stored summary artifacts for that file SHALL be deleted and replaced
         with newly generated summaries.
@@ -271,7 +270,7 @@ class TestIncrementalUpdateOnlyAffectsModifiedFiles:
     ):
         """
         Incremental update should only regenerate summaries for modified files.
-        
+
         Property: For any incremental update where only a subset of files are
         modified, only the summaries for modified files SHALL be regenerated;
         summaries for unmodified files SHALL remain unchanged.
@@ -301,7 +300,7 @@ class TestIncrementalUpdateOnlyAffectsModifiedFiles:
             # Get original summaries for both files
             file1_original_summaries = get_summary_artifacts_for_file(vector_store, file1_path)
             file2_original_summaries = get_summary_artifacts_for_file(vector_store, file2_path)
-            
+
             file1_original_ids = {s[0] for s in file1_original_summaries}
             file2_original_ids = {s[0] for s in file2_original_summaries}
             file2_original_contents = {s[2] for s in file2_original_summaries}
@@ -320,7 +319,7 @@ class TestIncrementalUpdateOnlyAffectsModifiedFiles:
             # Get new summaries
             file1_new_summaries = get_summary_artifacts_for_file(vector_store, file1_path)
             file2_new_summaries = get_summary_artifacts_for_file(vector_store, file2_path)
-            
+
             file1_new_ids = {s[0] for s in file1_new_summaries}
             file2_new_ids = {s[0] for s in file2_new_summaries}
             file2_new_contents = {s[2] for s in file2_new_summaries}
@@ -338,7 +337,7 @@ class TestIncrementalUpdateOnlyAffectsModifiedFiles:
                 f"Original: {file2_original_ids}, New: {file2_new_ids}"
             )
             assert file2_original_contents == file2_new_contents, (
-                f"Unmodified file summary contents should remain the same."
+                "Unmodified file summary contents should remain the same."
             )
 
         finally:
@@ -362,7 +361,7 @@ def create_indexing_components_with_parallel_summaries(
 
     collection_name = get_collection_name_for_path(str(temp_dir.resolve()))
     vector_store.set_collection(collection_name)
-    
+
     # Create chunker with summary generator
     tokenizer = TiktokenTokenizer()
     summary_generator = SummaryGenerator(tokenizer)
@@ -402,7 +401,7 @@ class TestParallelIndexingGeneratesSummaries:
     def test_parallel_indexing_generates_summaries(self, file_content):
         """
         Parallel indexing should generate summaries in post-processing.
-        
+
         Property: For any indexing operation with max_workers > 1 and a
         SummaryGenerator configured, the IndexingResult SHALL contain
         summary artifacts for processed files.
@@ -438,13 +437,13 @@ class TestParallelIndexingGeneratesSummaries:
 
             # Verify summary types are correct
             summary_types = {s[1] for s in summaries}
-            
+
             valid_summary_types = {
                 ArtifactType.FUNCTION_SUMMARY.value,
                 ArtifactType.CLASS_SUMMARY.value,
                 ArtifactType.FILE_SUMMARY.value,
             }
-            
+
             assert summary_types.issubset(valid_summary_types), (
                 f"Summary types should be valid: {summary_types}"
             )
@@ -469,7 +468,7 @@ class TestParallelIndexingGeneratesSummaries:
     def test_parallel_indexing_generates_class_summaries(self, file_content):
         """
         Parallel indexing should generate class summaries.
-        
+
         Property: For any file with a class, parallel indexing with
         SummaryGenerator should produce class_summary artifacts.
         """

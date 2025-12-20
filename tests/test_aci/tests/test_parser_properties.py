@@ -8,8 +8,7 @@ Property-based tests for command parser.
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from aci.cli.parser import ParsedCommand, parse_command, format_command, CommandParseError
-
+from aci.cli.parser import CommandParseError, ParsedCommand, format_command, parse_command
 
 # Strategy for valid command names (lowercase alphanumeric, no spaces)
 command_name = st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(
@@ -195,6 +194,6 @@ def test_unclosed_quote_raises_error():
     """Test that unclosed quotes raise CommandParseError."""
     try:
         parse_command('search "unclosed')
-        assert False, "Should have raised CommandParseError"
+        raise AssertionError("Should have raised CommandParseError")
     except CommandParseError:
         pass  # Expected

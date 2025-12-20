@@ -6,7 +6,6 @@ Contains CodeChunk and ChunkingResult dataclasses.
 
 import uuid
 from dataclasses import dataclass, field
-from typing import List
 
 from aci.core.summary_artifact import SummaryArtifact
 
@@ -50,5 +49,5 @@ class ChunkingResult:
         summaries: List of summary artifacts (function, class, file summaries)
     """
 
-    chunks: List[CodeChunk] = field(default_factory=list)
-    summaries: List[SummaryArtifact] = field(default_factory=list)
+    chunks: list[CodeChunk] = field(default_factory=list)
+    summaries: list[SummaryArtifact] = field(default_factory=list)

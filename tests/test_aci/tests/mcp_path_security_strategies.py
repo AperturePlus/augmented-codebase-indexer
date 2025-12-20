@@ -1,7 +1,6 @@
 """Shared strategies and helpers for MCP path security property tests."""
 
 import asyncio
-from pathlib import Path
 
 from hypothesis import strategies as st
 

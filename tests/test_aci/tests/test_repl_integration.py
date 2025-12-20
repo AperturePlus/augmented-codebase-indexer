@@ -60,7 +60,7 @@ def router_with_handlers(mock_services) -> CommandRouter:
 class TestREPLWorkflowLogic:
     """
     Integration tests for REPL workflow logic.
-    
+
     Tests the core command processing logic that REPLController uses,
     simulating the handle_input flow without prompt_toolkit dependencies.
     """
@@ -150,7 +150,7 @@ class TestREPLWorkflowLogic:
         """
         # Simulate a session with multiple commands
         commands = ["help", "status", "list", "?"]
-        
+
         for cmd_str in commands:
             cmd = parse_command(cmd_str)
             result = router_with_handlers.route(cmd)
@@ -317,14 +317,14 @@ class TestUIComponentsIntegration:
 class TestREPLModuleStructure:
     """
     Integration tests verifying REPL module refactoring preserved functionality.
-    
+
     **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
     """
 
     def test_all_modules_importable(self):
         """
         **Validates: Requirements 5.1, 5.2**
-        
+
         All refactored REPL modules should be importable.
         """
         # Import all modules from the repl package
@@ -335,7 +335,7 @@ class TestREPLModuleStructure:
             REPLController,
             SearchOperations,
         )
-        
+
         # Verify classes are accessible
         assert CommandCompleter is not None
         assert IndexingOperations is not None
@@ -346,11 +346,11 @@ class TestREPLModuleStructure:
     def test_repl_controller_from_package(self):
         """
         **Validates: Requirements 5.3**
-        
+
         REPLController should be importable from the repl package.
         """
         from aci.cli.repl import REPLController
-        
+
         # Verify it's the correct class
         assert hasattr(REPLController, 'run')
         assert hasattr(REPLController, 'handle_input')
@@ -359,26 +359,26 @@ class TestREPLModuleStructure:
     def test_context_integration_with_controller(self, mock_services):
         """
         **Validates: Requirements 5.4**
-        
+
         REPLContext should integrate correctly with REPLController.
         """
         from aci.cli.repl import REPLContext
-        
+
         # Create context and verify it works
         context = REPLContext()
         context.set_metadata_store(mock_services.metadata_store)
-        
+
         # Verify context methods work
         assert context.get_codebase() is not None
         assert context.has_explicit_codebase() is False
-        
+
         # Set and verify codebase
         from pathlib import Path
         test_path = Path("/test/path")
         context.set_codebase(test_path)
         assert context.get_codebase() == test_path
         assert context.has_explicit_codebase() is True
-        
+
         # Clear and verify
         context.clear_codebase()
         assert context.has_explicit_codebase() is False
@@ -386,14 +386,14 @@ class TestREPLModuleStructure:
     def test_indexing_ops_integration(self, mock_services, test_console):
         """
         **Validates: Requirements 5.4**
-        
+
         IndexingOperations should work correctly after refactoring.
         """
         from aci.cli.repl import IndexingOperations
-        
+
         # Create indexing ops
         indexing_ops = IndexingOperations(mock_services, test_console, verbose=False)
-        
+
         # Verify properties work
         assert indexing_ops.verbose is False
         indexing_ops.verbose = True
@@ -402,16 +402,16 @@ class TestREPLModuleStructure:
     def test_search_ops_integration(self, mock_services, test_console):
         """
         **Validates: Requirements 5.4**
-        
+
         SearchOperations should work correctly after refactoring.
         """
         from aci.cli.repl import REPLContext, SearchOperations
-        
+
         # Create context and search ops
         context = REPLContext()
         context.set_metadata_store(mock_services.metadata_store)
         search_ops = SearchOperations(mock_services, test_console, context)
-        
+
         # Verify it was created successfully
         assert search_ops.context is context
         assert search_ops.console is test_console
@@ -419,14 +419,14 @@ class TestREPLModuleStructure:
     def test_completer_integration(self, router_with_handlers):
         """
         **Validates: Requirements 5.4**
-        
+
         CommandCompleter should work correctly after refactoring.
         """
         from aci.cli.repl import CommandCompleter
-        
+
         # Create completer with router
         completer = CommandCompleter(router_with_handlers)
-        
+
         # Verify command names are populated
         assert len(completer._command_names) > 0
         assert "help" in completer._command_names

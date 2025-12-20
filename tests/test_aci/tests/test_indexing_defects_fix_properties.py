@@ -4,20 +4,14 @@ Property-based tests for indexing service defects fix.
 Tests Fix 2: Embedding count validation
 """
 
-import shutil
-import tempfile
-from pathlib import Path
-from typing import List
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aci.core.chunker import CodeChunk
 from aci.services.indexing_service import IndexingError, IndexingService
 from tests.search_service_test_utils import run_async
-
 
 # =============================================================================
 # Test Helpers
@@ -36,7 +30,7 @@ class PartialEmbeddingClient:
         self.call_count = 0
         self.last_input_count = 0
 
-    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         self.call_count += 1
         self.last_input_count = len(texts)
 
@@ -55,7 +49,7 @@ class CorrectEmbeddingClient:
         self.call_count = 0
         self.total_embedded = 0
 
-    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         self.call_count += 1
         self.total_embedded += len(texts)
         return [[0.1] * 384 for _ in range(len(texts))]
@@ -65,13 +59,13 @@ class TrackingVectorStore:
     """Vector store that tracks upsert calls."""
 
     def __init__(self):
-        self.upserted_chunks: List[str] = []
+        self.upserted_chunks: list[str] = []
         self.upsert_count = 0
 
     async def upsert(
         self,
         chunk_id: str,
-        vector: List[float],
+        vector: list[float],
         payload: dict,
         collection_name: str | None = None,
     ) -> None:
@@ -98,7 +92,7 @@ class TrackingMetadataStore:
     """Metadata store that tracks writes."""
 
     def __init__(self):
-        self.written_files: List[str] = []
+        self.written_files: list[str] = []
         self.write_count = 0
         self.pending_batches: list[str] = []
 

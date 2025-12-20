@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from .errors import EmbeddingClientError, NonRetryableError, RetryableError
 
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RetryConfig:
     """Configuration for retry behavior.
-    
+
     Attributes:
         max_retries: Maximum number of retry attempts for transient errors.
         base_delay: Initial delay in seconds before first retry.
@@ -45,7 +44,7 @@ async def with_retry(operation, config: RetryConfig):
     Raises:
         EmbeddingClientError: If all retries are exhausted
     """
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(config.max_retries + 1):
         try:

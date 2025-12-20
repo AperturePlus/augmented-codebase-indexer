@@ -6,12 +6,10 @@ Uses Hypothesis to verify universal properties across all inputs.
 Feature: comment-aware-search
 """
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from aci.core.docstring_formatter import DocstringFormatter
-
 
 # =============================================================================
 # Custom Strategies for Generating Docstrings
@@ -66,9 +64,9 @@ def doxygen_line_comment(draw):
 class TestRoundTripProperty:
     """
     # Feature: comment-aware-search, Property 7: Docstring Round-Trip Consistency
-    
+
     For any valid docstring: normalize(pretty_print(normalize(d))) == normalize(d)
-    
+
     **Validates: Requirements 5.3**
     """
 
@@ -81,10 +79,10 @@ class TestRoundTripProperty:
         """Test round-trip for JSDoc comments."""
         normalized = self.formatter.normalize(docstring, "javascript")
         assume(normalized)
-        
+
         pretty = self.formatter.pretty_print(normalized)
         normalized_again = self.formatter.normalize(pretty, "unknown")
-        
+
         assert normalized == normalized_again
 
     @given(docstring=go_doc_comment())
@@ -93,10 +91,10 @@ class TestRoundTripProperty:
         """Test round-trip for Go doc comments."""
         normalized = self.formatter.normalize(docstring, "go")
         assume(normalized)
-        
+
         pretty = self.formatter.pretty_print(normalized)
         normalized_again = self.formatter.normalize(pretty, "unknown")
-        
+
         assert normalized == normalized_again
 
     @given(docstring=python_docstring())
@@ -105,10 +103,10 @@ class TestRoundTripProperty:
         """Test round-trip for Python docstrings."""
         normalized = self.formatter.normalize(docstring, "python")
         assume(normalized)
-        
+
         pretty = self.formatter.pretty_print(normalized)
         normalized_again = self.formatter.normalize(pretty, "unknown")
-        
+
         assert normalized == normalized_again
 
     @given(docstring=doxygen_line_comment())
@@ -117,10 +115,10 @@ class TestRoundTripProperty:
         """Test round-trip for Doxygen line comments."""
         normalized = self.formatter.normalize(docstring, "cpp")
         assume(normalized)
-        
+
         pretty = self.formatter.pretty_print(normalized)
         normalized_again = self.formatter.normalize(pretty, "unknown")
-        
+
         assert normalized == normalized_again
 
 
@@ -131,9 +129,9 @@ class TestRoundTripProperty:
 class TestNormalizationConsistencyProperty:
     """
     # Feature: comment-aware-search, Property 6: Docstring Normalization Consistency
-    
+
     Normalized output SHALL be plain text with comment syntax removed.
-    
+
     **Validates: Requirements 5.1, 5.2**
     """
 
@@ -146,7 +144,7 @@ class TestNormalizationConsistencyProperty:
         """Test that JSDoc syntax is removed."""
         docstring = f"/** {content} */"
         normalized = self.formatter.normalize(docstring, "javascript")
-        
+
         assert "/**" not in normalized
         assert "*/" not in normalized
 
@@ -157,7 +155,7 @@ class TestNormalizationConsistencyProperty:
         safe_content = content.replace("\n", " ").strip()
         docstring = f"// {safe_content}"
         normalized = self.formatter.normalize(docstring, "go")
-        
+
         assert not normalized.startswith("//")
 
     @given(content=plain_text_content)
@@ -166,7 +164,7 @@ class TestNormalizationConsistencyProperty:
         """Test that Python docstring quotes are removed."""
         docstring = f'"""{content}"""'
         normalized = self.formatter.normalize(docstring, "python")
-        
+
         assert '"""' not in normalized
 
     @given(content=plain_text_content)
@@ -174,15 +172,15 @@ class TestNormalizationConsistencyProperty:
     def test_equivalent_content_similar_output(self, content: str):
         """Test that same content in different formats produces similar output."""
         safe_content = content.replace("\n", " ").strip()
-        
+
         jsdoc = f"/** {safe_content} */"
         go_doc = f"// {safe_content}"
         py_doc = f'"""{safe_content}"""'
-        
+
         norm_js = self.formatter.normalize(jsdoc, "javascript")
         norm_go = self.formatter.normalize(go_doc, "go")
         norm_py = self.formatter.normalize(py_doc, "python")
-        
+
         # All should contain the core content
         assert safe_content in norm_js or norm_js == safe_content
         assert safe_content in norm_go or norm_go == safe_content
@@ -208,7 +206,7 @@ class TestFormatForEmbeddingProperty:
         """Test that delimiter is present when docstring normalizes to non-empty."""
         result = self.formatter.format_for_embedding(docstring, code, "javascript")
         normalized = self.formatter.normalize(docstring, "javascript")
-        
+
         if normalized:
             assert self.formatter.DELIMITER in result
 

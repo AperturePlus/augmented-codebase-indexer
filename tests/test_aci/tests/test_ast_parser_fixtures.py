@@ -5,11 +5,11 @@ Loads test cases from JSON fixtures and validates parsing results.
 """
 
 import json
-import pytest
 from pathlib import Path
 
-from aci.core.ast_parser import TreeSitterParser
+import pytest
 
+from aci.core.ast_parser import TreeSitterParser
 
 # Load fixtures
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "docstring_samples"
@@ -20,7 +20,7 @@ def load_fixture(filename: str) -> dict:
     filepath = FIXTURES_DIR / filename
     if not filepath.exists():
         pytest.skip(f"Fixture file not found: {filepath}")
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -51,22 +51,22 @@ class TestJavaScriptFixtures:
     def test_javascript_parsing(self, parser, language, test_id, code, expected):
         """Test JavaScript parsing against fixture expectations."""
         nodes = parser.parse(code, language)
-        
+
         # Verify we got the expected number of nodes
         assert len(nodes) >= len(expected), (
             f"Test {test_id}: Expected at least {len(expected)} nodes, got {len(nodes)}"
         )
-        
+
         # Check each expected node
         for exp in expected:
             matching = [n for n in nodes if n.name == exp["name"]]
             assert len(matching) > 0, f"Test {test_id}: Node '{exp['name']}' not found"
-            
+
             node = matching[0]
             assert node.node_type == exp["node_type"], (
                 f"Test {test_id}: Expected type '{exp['node_type']}', got '{node.node_type}'"
             )
-            
+
             if exp["has_docstring"]:
                 assert node.docstring is not None, (
                     f"Test {test_id}: Expected docstring for '{exp['name']}'"
@@ -96,18 +96,18 @@ class TestPythonFixtures:
     def test_python_parsing(self, parser, language, test_id, code, expected):
         """Test Python parsing against fixture expectations."""
         nodes = parser.parse(code, language)
-        
+
         assert len(nodes) >= len(expected), (
             f"Test {test_id}: Expected at least {len(expected)} nodes, got {len(nodes)}"
         )
-        
+
         for exp in expected:
             matching = [n for n in nodes if n.name == exp["name"]]
             assert len(matching) > 0, f"Test {test_id}: Node '{exp['name']}' not found"
-            
+
             node = matching[0]
             assert node.node_type == exp["node_type"]
-            
+
             if exp["has_docstring"]:
                 assert node.docstring is not None
                 for text in exp.get("docstring_contains", []):
@@ -131,18 +131,18 @@ class TestGoFixtures:
     def test_go_parsing(self, parser, language, test_id, code, expected):
         """Test Go parsing against fixture expectations."""
         nodes = parser.parse(code, language)
-        
+
         assert len(nodes) >= len(expected), (
             f"Test {test_id}: Expected at least {len(expected)} nodes, got {len(nodes)}"
         )
-        
+
         for exp in expected:
             matching = [n for n in nodes if n.name == exp["name"]]
             assert len(matching) > 0, f"Test {test_id}: Node '{exp['name']}' not found"
-            
+
             node = matching[0]
             assert node.node_type == exp["node_type"]
-            
+
             if exp["has_docstring"]:
                 assert node.docstring is not None
                 for text in exp.get("docstring_contains", []):

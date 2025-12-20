@@ -5,7 +5,6 @@ Provides the main Read-Eval-Print Loop controller that integrates
 prompt_toolkit for input handling, command parsing, routing, and UI rendering.
 """
 
-from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory, InMemoryHistory
@@ -25,7 +24,6 @@ from aci.cli.router import CommandRouter
 from aci.cli.services import ServicesContainer
 from aci.cli.ui import render_error, render_help, render_welcome_banner
 from aci.core.path_utils import ensure_directory_exists
-
 
 # Prompt style for prompt_toolkit with command highlighting and codebase colors
 PROMPT_STYLE = Style.from_dict({
@@ -58,8 +56,8 @@ class REPLController:
     def __init__(
         self,
         services: ServicesContainer,
-        console: Optional[Console] = None,
-        history_file: Optional[str] = None,
+        console: Console | None = None,
+        history_file: str | None = None,
     ):
         """
         Initialize the REPL controller.
@@ -116,7 +114,7 @@ class REPLController:
     def _get_command_names(self) -> list[str]:
         """
         Get list of valid command names from the router.
-        
+
         Returns:
             List of registered command names.
         """
@@ -125,20 +123,20 @@ class REPLController:
     def _create_history(self, history_path: str):
         """
         Create history storage, ensuring parent directory exists.
-        
+
         Falls back to in-memory history if directory creation fails.
-        
+
         Args:
             history_path: Path to the history file.
-            
+
         Returns:
             FileHistory if directory exists/created, InMemoryHistory otherwise.
         """
         from pathlib import Path
-        
+
         path = Path(history_path)
         parent_dir = path.parent
-        
+
         # Ensure parent directory exists
         if not ensure_directory_exists(parent_dir):
             self.console.print(
@@ -146,7 +144,7 @@ class REPLController:
                 "using in-memory history[/yellow]"
             )
             return InMemoryHistory()
-        
+
         try:
             return FileHistory(history_path)
         except (OSError, PermissionError) as e:
@@ -276,7 +274,7 @@ class REPLController:
     def _reset_async_clients(self) -> None:
         """
         Reset async HTTP clients before event loop reset.
-        
+
         This ensures that httpx.AsyncClient instances are properly closed
         before the event loop is reset, preventing "Event loop is closed" errors.
         """
@@ -289,7 +287,7 @@ class REPLController:
             except Exception:
                 # Best effort - client may already be closed
                 pass
-        
+
         # Close reranker's internal HTTP client if it has one
         if self.services.reranker and hasattr(self.services.reranker, 'close'):
             try:
@@ -371,11 +369,11 @@ class REPLController:
             try:
                 stale_files = self.services.metadata_store.get_stale_files(limit=5)
                 stale_count = len(self.services.metadata_store.get_stale_files())
-                
+
                 if stale_count > 0:
                     self.console.print("\n[bold yellow]Stale Files:[/bold yellow]")
                     self.console.print(f"  Total stale files: [yellow]{stale_count}[/yellow]")
-                    
+
                     if stale_files:
                         self.console.print("  Examples:")
                         for file_path, staleness_seconds in stale_files:

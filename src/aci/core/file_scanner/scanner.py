@@ -6,8 +6,8 @@ import fnmatch
 import hashlib
 import logging
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Set
 
 from aci.core.gitignore_manager import GitignoreManager
 from aci.core.symlink_validator import SymlinkValidator
@@ -77,7 +77,7 @@ class FileScanner(FileScannerInterface):
 
     def __init__(
         self,
-        extensions: Set[str] | None = None,
+        extensions: set[str] | None = None,
         ignore_patterns: list[str] | None = None,
         language_registry: LanguageRegistry | None = None,
         follow_symlinks: bool = False,
@@ -98,9 +98,9 @@ class FileScanner(FileScannerInterface):
             case_sensitive: Override case sensitivity for pattern matching.
                            If None, auto-detects based on platform (Windows=insensitive).
         """
-        self._extensions: Set[str] = extensions or {".py", ".js", ".ts", ".go"}
+        self._extensions: set[str] = extensions or {".py", ".js", ".ts", ".go"}
         self._ignore_patterns: list[str] = (
-            ignore_patterns if ignore_patterns is not None 
+            ignore_patterns if ignore_patterns is not None
             else list(self.DEFAULT_IGNORE_PATTERNS)
         )
         self._language_registry = language_registry or get_default_registry()
@@ -134,7 +134,7 @@ class FileScanner(FileScannerInterface):
 
         return False
 
-    def set_extensions(self, extensions: Set[str]) -> None:
+    def set_extensions(self, extensions: set[str]) -> None:
         """Set the file extensions to include in scanning."""
         self._extensions = extensions
 

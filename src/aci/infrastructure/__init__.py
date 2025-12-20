@@ -13,8 +13,13 @@ from aci.infrastructure.embedding import (
     create_embedding_client,
 )
 from aci.infrastructure.fakes import (
+    FakeFileWatcher,
     InMemoryVectorStore,
     LocalEmbeddingClient,
+)
+from aci.infrastructure.file_watcher import (
+    FileWatcher,
+    FileWatcherInterface,
 )
 from aci.infrastructure.grep_searcher import (
     GrepSearcher,
@@ -64,7 +69,11 @@ __all__ = [
     "PendingBatch",
     "MetadataStoreError",
     "create_metadata_store",
+    # File watcher
+    "FileWatcherInterface",
+    "FileWatcher",
     # Fakes for testing
     "InMemoryVectorStore",
     "LocalEmbeddingClient",
+    "FakeFileWatcher",
 ]

@@ -7,7 +7,6 @@ Stores code chunk embeddings with metadata for semantic search.
 import asyncio
 import fnmatch
 import logging
-from typing import List, Optional
 
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -30,14 +29,14 @@ class QdrantVectorStore(VectorStoreInterface):
         port: int = 6333,
         collection_name: str = "aci_codebase",
         vector_size: int = 1536,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
     ):
         self._host = host
         self._port = port
         self._collection_name = collection_name
         self._vector_size = vector_size
         self._api_key = api_key
-        self._client: Optional[AsyncQdrantClient] = None
+        self._client: AsyncQdrantClient | None = None
         self._initialized_collections: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
 
@@ -59,7 +58,7 @@ class QdrantVectorStore(VectorStoreInterface):
         """Get the current collection name."""
         return self._collection_name
 
-    async def initialize(self, collection_name: Optional[str] = None) -> None:
+    async def initialize(self, collection_name: str | None = None) -> None:
         """Initialize the target collection if it doesn't exist."""
         target_collection = collection_name or self._collection_name
         if target_collection in self._initialized_collections:
@@ -125,9 +124,9 @@ class QdrantVectorStore(VectorStoreInterface):
     async def upsert(
         self,
         chunk_id: str,
-        vector: List[float],
+        vector: list[float],
         payload: dict,
-        collection_name: Optional[str] = None,
+        collection_name: str | None = None,
     ) -> None:
         """Insert or update a vector with its payload."""
         target_collection = collection_name or self._collection_name
@@ -149,8 +148,8 @@ class QdrantVectorStore(VectorStoreInterface):
 
     async def upsert_batch(
         self,
-        points: List[tuple[str, List[float], dict]],
-        collection_name: Optional[str] = None,
+        points: list[tuple[str, list[float], dict]],
+        collection_name: str | None = None,
     ) -> None:
         """Batch insert or update vectors."""
         target_collection = collection_name or self._collection_name
@@ -176,7 +175,7 @@ class QdrantVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(f"Failed to batch upsert vectors: {e}") from e
 
-    async def delete_by_file(self, file_path: str, collection_name: Optional[str] = None) -> int:
+    async def delete_by_file(self, file_path: str, collection_name: str | None = None) -> int:
         """Delete all vectors for a file, return count deleted."""
         target_collection = collection_name or self._collection_name
         await self.initialize(target_collection)
@@ -218,12 +217,12 @@ class QdrantVectorStore(VectorStoreInterface):
 
     async def search(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 10,
-        file_filter: Optional[str] = None,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None = None,
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         """Search for similar vectors."""
         target_collection = collection_name or self._collection_name
         await self.initialize(target_collection)
@@ -317,10 +316,10 @@ class QdrantVectorStore(VectorStoreInterface):
 
     async def _query_with_sync_client(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int,
-        search_filter: Optional[models.Filter],
-        target_collection: Optional[str] = None,
+        search_filter: models.Filter | None,
+        target_collection: str | None = None,
     ):
         """Fallback search using sync QdrantClient executed in a thread."""
         from qdrant_client import QdrantClient
@@ -344,7 +343,7 @@ class QdrantVectorStore(VectorStoreInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _do_search)
 
-    async def get_stats(self, collection_name: Optional[str] = None) -> dict:
+    async def get_stats(self, collection_name: str | None = None) -> dict:
         """Get storage statistics."""
         target_collection = collection_name or self._collection_name
         await self.initialize(target_collection)
@@ -378,7 +377,7 @@ class QdrantVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(f"Failed to get stats: {e}") from e
 
-    async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
+    async def get_by_id(self, chunk_id: str) -> SearchResult | None:
         """Get a specific chunk by ID."""
         await self.initialize()
         client = await self._get_client()
@@ -419,7 +418,7 @@ class QdrantVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(f"Failed to get by ID: {e}") from e
 
-    async def get_all_file_paths(self, collection_name: Optional[str] = None) -> List[str]:
+    async def get_all_file_paths(self, collection_name: str | None = None) -> list[str]:
         """Get all unique file paths in the store."""
         target_collection = collection_name or self._collection_name
         await self.initialize(target_collection)

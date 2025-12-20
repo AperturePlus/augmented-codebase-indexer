@@ -5,11 +5,11 @@ Provides a prompt_toolkit Lexer that tokenizes REPL commands for
 real-time syntax highlighting of command names, arguments, and options.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 from prompt_toolkit.document import Document
-from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.lexers import Lexer
 
 
 class CommandLexer(Lexer):
@@ -31,7 +31,7 @@ class CommandLexer(Lexer):
         Args:
             commands: List of valid command names to recognize.
         """
-        self._commands = set(cmd.lower() for cmd in commands)
+        self._commands = {cmd.lower() for cmd in commands}
 
     def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
         """

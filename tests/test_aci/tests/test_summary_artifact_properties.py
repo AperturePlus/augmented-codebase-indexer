@@ -5,11 +5,10 @@ Property-based tests for SummaryArtifact.
 **Validates: Requirements 3.4**
 """
 
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from aci.core.summary_artifact import ArtifactType, SummaryArtifact
-
 
 # Strategies for generating valid SummaryArtifact fields
 safe_text = st.text(
@@ -79,7 +78,7 @@ def summary_artifact_strategy(draw):
     """Generate valid SummaryArtifact instances."""
     start = draw(line_number)
     end = draw(st.integers(min_value=start, max_value=start + 10000))
-    
+
     return SummaryArtifact(
         artifact_id=draw(st.uuids().map(str)),
         file_path=draw(file_path),
@@ -104,10 +103,10 @@ def test_summary_artifact_json_round_trip(artifact: SummaryArtifact):
     """
     # Serialize to JSON
     json_str = artifact.to_json()
-    
+
     # Deserialize from JSON
     restored = SummaryArtifact.from_json(json_str)
-    
+
     # Verify all fields are preserved
     assert restored.artifact_id == artifact.artifact_id
     assert restored.file_path == artifact.file_path
@@ -131,10 +130,10 @@ def test_summary_artifact_dict_round_trip(artifact: SummaryArtifact):
     """
     # Convert to dict
     data = artifact.to_dict()
-    
+
     # Restore from dict
     restored = SummaryArtifact.from_dict(data)
-    
+
     # Verify equivalence
     assert restored.to_dict() == artifact.to_dict()
 
@@ -150,7 +149,7 @@ def test_artifact_type_preserved_as_string(artifact: SummaryArtifact):
     value (not the enum representation) for JSON compatibility.
     """
     data = artifact.to_dict()
-    
+
     # artifact_type should be a string value, not enum repr
     assert isinstance(data["artifact_type"], str)
     assert data["artifact_type"] in [t.value for t in ArtifactType]

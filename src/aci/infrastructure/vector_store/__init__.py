@@ -24,7 +24,7 @@ def create_vector_store(
     port: int = 6333,
     collection_name: str = "aci_codebase",
     vector_size: int = 1536,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> VectorStoreInterface:
     """
     Factory function to create a vector store.

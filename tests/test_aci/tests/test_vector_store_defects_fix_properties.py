@@ -9,7 +9,6 @@ from hypothesis import strategies as st
 
 from aci.infrastructure.vector_store import is_glob_pattern
 
-
 # =============================================================================
 # Fix 3: Server-side File Path Filtering Tests
 # =============================================================================

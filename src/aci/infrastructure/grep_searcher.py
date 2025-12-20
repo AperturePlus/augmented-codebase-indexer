@@ -8,7 +8,6 @@ import fnmatch
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 from aci.infrastructure.vector_store import SearchResult
 
@@ -28,12 +27,12 @@ class GrepSearcherInterface(ABC):
     async def search(
         self,
         query: str,
-        file_paths: List[str],
+        file_paths: list[str],
         limit: int = 20,
         context_lines: int = 3,
         case_sensitive: bool = False,
-        file_filter: Optional[str] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None = None,
+    ) -> list[SearchResult]:
         """
         Search for exact text matches in files.
 
@@ -83,7 +82,7 @@ class GrepSearcher(GrepSearcherInterface):
                 chunk = f.read(8192)
                 # Check for null bytes which indicate binary content
                 return b"\x00" in chunk
-        except (OSError, IOError):
+        except OSError:
             return True  # Treat unreadable files as binary
 
     def _resolve_path(self, file_path: str) -> str:
@@ -103,12 +102,12 @@ class GrepSearcher(GrepSearcherInterface):
     async def search(
         self,
         query: str,
-        file_paths: List[str],
+        file_paths: list[str],
         limit: int = 20,
         context_lines: int = 3,
         case_sensitive: bool = False,
-        file_filter: Optional[str] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None = None,
+    ) -> list[SearchResult]:
         """
         Search for exact text matches in files.
 
@@ -127,7 +126,7 @@ class GrepSearcher(GrepSearcherInterface):
         if not query or not query.strip():
             return []
 
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         search_query = query if case_sensitive else query.lower()
 
         for file_path in file_paths:
@@ -174,7 +173,7 @@ class GrepSearcher(GrepSearcherInterface):
         case_sensitive: bool,
         context_lines: int,
         remaining_limit: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search a single file for matches.
 
@@ -190,12 +189,12 @@ class GrepSearcher(GrepSearcherInterface):
         Returns:
             List of SearchResult for this file
         """
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
 
         try:
-            with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(resolved_path, encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.warning(f"Error reading file {file_path}: {e}")
             return []
         except UnicodeDecodeError as e:

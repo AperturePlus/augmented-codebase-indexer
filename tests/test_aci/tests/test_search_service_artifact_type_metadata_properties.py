@@ -7,15 +7,13 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import List, Optional
 
-from hypothesis import HealthCheck, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aci.infrastructure.vector_store import SearchResult
 from aci.services.search_service import SearchService
 from aci.services.search_types import SearchMode
-
 
 # Valid artifact types as defined in the design
 ARTIFACT_TYPES = ["chunk", "function_summary", "class_summary", "file_summary"]
@@ -37,7 +35,7 @@ class MockSearchResult:
 class MockVectorStoreWithResults:
     """Mock vector store that returns configurable results with artifact_type."""
 
-    def __init__(self, results: List[MockSearchResult] = None):
+    def __init__(self, results: list[MockSearchResult] = None):
         self.search_called = False
         self.search_count = 0
         self.last_artifact_types = None
@@ -50,7 +48,7 @@ class MockVectorStoreWithResults:
         file_filter: str = None,
         collection_name: str = None,
         artifact_types: list = None,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         self.search_called = True
         self.search_count += 1
         self.last_artifact_types = artifact_types
@@ -74,9 +72,9 @@ class MockVectorStoreWithResults:
         return filtered_results[:limit]
 
     async def get_all_file_paths(self, collection_name: str = None) -> list:
-        return list(set(r.file_path for r in self._results))
+        return list({r.file_path for r in self._results})
 
-    async def get_by_id(self, chunk_id: str) -> Optional[SearchResult]:
+    async def get_by_id(self, chunk_id: str) -> SearchResult | None:
         for r in self._results:
             if r.chunk_id == chunk_id:
                 return SearchResult(
@@ -134,7 +132,7 @@ def mock_search_result_strategy(draw, artifact_type: str = None):
     """Generate a mock search result with specified or random artifact_type."""
     if artifact_type is None:
         artifact_type = draw(artifact_type_strategy)
-    
+
     idx = draw(st.integers(min_value=0, max_value=9999))
     start_line = draw(st.integers(min_value=1, max_value=100))
     return MockSearchResult(
@@ -179,7 +177,7 @@ class TestSummaryArtifactResultsHaveArtifactTypePopulated:
     """
     **Feature: hybrid-search-modes, Property 6: Summary artifact results have artifact_type populated**
     **Validates: Requirements 2.3, 6.1**
-    
+
     For any search result returned when querying for summary artifacts,
     the result SHALL have a non-null artifact_type metadata field.
     """
@@ -256,7 +254,7 @@ class TestVectorSearchRespectsArtifactTypeFilter:
     """
     **Feature: hybrid-search-modes, Property 3: Vector search respects artifact_type filter**
     **Validates: Requirements 1.3, 6.3**
-    
+
     For any vector search with artifact_types filter, all returned results
     SHALL have an artifact_type metadata value that is contained in the
     specified filter list.
@@ -363,7 +361,7 @@ class TestMissingArtifactTypeDefaultsToChunk:
     """
     **Feature: hybrid-search-modes, Property 11: Missing artifact_type defaults to chunk**
     **Validates: Requirements 6.4**
-    
+
     For any stored vector data without artifact_type metadata, when filtering
     by artifact_types containing "chunk", the data SHALL be included in results.
     """

@@ -9,10 +9,9 @@
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from tests.search_service_test_utils import run_async
-
 from aci.services.search_service import SearchService
 from aci.services.search_types import SearchMode
+from tests.search_service_test_utils import run_async
 
 
 class MockGrepSearcher:
@@ -85,7 +84,7 @@ class TestSummaryModeSearchesOnlySummaryTypes:
     """
     **Feature: hybrid-search-modes, Property 7: SUMMARY mode searches only summary types**
     **Validates: Requirements 3.1, 3.4**
-    
+
     For any search with SearchMode.SUMMARY, the effective artifact_types filter
     SHALL be exactly ["function_summary", "class_summary", "file_summary"].
     """
@@ -123,7 +122,7 @@ class TestSummaryModeExcludesGrep:
     """
     **Feature: hybrid-search-modes, Property 8: SUMMARY mode excludes grep**
     **Validates: Requirements 3.2**
-    
+
     For any search with SearchMode.SUMMARY, grep search SHALL NOT be invoked.
     """
 
@@ -191,9 +190,9 @@ class TestHybridWithSummaryTypesEqualsSummaryMode:
     """
     **Feature: hybrid-search-modes, Property 9: HYBRID with summary types equals SUMMARY mode**
     **Validates: Requirements 3.3**
-    
-    For any query, searching with SearchMode.HYBRID and 
-    artifact_types=["function_summary", "class_summary", "file_summary"] 
+
+    For any query, searching with SearchMode.HYBRID and
+    artifact_types=["function_summary", "class_summary", "file_summary"]
     SHALL produce the same results as searching with SearchMode.SUMMARY.
     """
 

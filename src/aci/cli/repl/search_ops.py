@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 class SearchOperations:
     """
     Handles search-related REPL commands.
-    
+
     Provides search operations with result rendering and
     integration with REPLContext for codebase selection.
     """
@@ -36,7 +36,7 @@ class SearchOperations:
     ):
         """
         Initialize search operations.
-        
+
         Args:
             services: Services container with initialized services.
             console: Rich console for output.
@@ -51,15 +51,15 @@ class SearchOperations:
     def run_search(
         self,
         query: str,
-        limit: Optional[str] = None,
-        artifact_types: Optional[list[str]] = None,
+        limit: str | None = None,
+        artifact_types: list[str] | None = None,
     ) -> None:
         """
         Run the search command.
-        
+
         Uses the codebase from REPLContext if set, otherwise
         defaults to the current working directory.
-        
+
         Args:
             query: Search query string.
             limit: Optional result limit as string.
@@ -70,7 +70,7 @@ class SearchOperations:
 
         # Get the codebase path from context
         codebase_path = self.context.get_codebase()
-        
+
         # Check if the path is indexed
         if not self.context.is_path_indexed(codebase_path):
             render_error(
@@ -130,7 +130,7 @@ class SearchOperations:
     def _render_results(self, results: list) -> None:
         """
         Render search results with syntax highlighting.
-        
+
         Args:
             results: List of search results to display.
         """

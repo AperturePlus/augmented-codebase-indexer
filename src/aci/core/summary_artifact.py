@@ -9,13 +9,13 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class ArtifactType(str, Enum):
     """
     Types of artifacts that can be indexed.
-    
+
     Inherits from str to enable JSON serialization and string comparison.
     """
     CHUNK = "chunk"
@@ -28,11 +28,11 @@ class ArtifactType(str, Enum):
 class SummaryArtifact:
     """
     Represents a summary artifact for indexing.
-    
+
     Summary artifacts provide higher-level semantic descriptions of code
     structures (functions, classes, files) to complement fine-grained
     code chunks in search results.
-    
+
     Attributes:
         artifact_id: Unique identifier (UUID)
         file_path: Path to the source file
@@ -43,7 +43,7 @@ class SummaryArtifact:
         end_line: End line in source (0 for file summary)
         metadata: Type-specific metadata (params, return_type, base_classes, etc.)
     """
-    
+
     artifact_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     file_path: str = ""
     artifact_type: ArtifactType = ArtifactType.CHUNK
@@ -51,12 +51,12 @@ class SummaryArtifact:
     content: str = ""
     start_line: int = 0
     end_line: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the artifact to a dictionary suitable for JSON serialization.
-        
+
         Returns:
             Dictionary representation with artifact_type as string value.
         """
@@ -64,24 +64,24 @@ class SummaryArtifact:
         # Convert ArtifactType enum to its string value
         result["artifact_type"] = self.artifact_type.value
         return result
-    
+
     def to_json(self) -> str:
         """
         Serialize the artifact to a JSON string.
-        
+
         Returns:
             JSON string representation.
         """
         return json.dumps(self.to_dict())
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SummaryArtifact":
+    def from_dict(cls, data: dict[str, Any]) -> "SummaryArtifact":
         """
         Create a SummaryArtifact from a dictionary.
-        
+
         Args:
             data: Dictionary containing artifact fields.
-            
+
         Returns:
             SummaryArtifact instance.
         """
@@ -93,7 +93,7 @@ class SummaryArtifact:
             artifact_type = artifact_type_value
         else:
             artifact_type = ArtifactType.CHUNK
-        
+
         return cls(
             artifact_id=data.get("artifact_id", str(uuid.uuid4())),
             file_path=data.get("file_path", ""),
@@ -104,15 +104,15 @@ class SummaryArtifact:
             end_line=data.get("end_line", 0),
             metadata=data.get("metadata", {}),
         )
-    
+
     @classmethod
     def from_json(cls, json_str: str) -> "SummaryArtifact":
         """
         Create a SummaryArtifact from a JSON string.
-        
+
         Args:
             json_str: JSON string representation.
-            
+
         Returns:
             SummaryArtifact instance.
         """

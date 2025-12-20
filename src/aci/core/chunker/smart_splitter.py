@@ -6,7 +6,6 @@ Provides intelligent code splitting that avoids breaking syntax structures.
 
 import logging
 import re
-from typing import List
 
 from aci.core.ast_parser import ASTNode
 from aci.core.tokenizer import TokenizerInterface
@@ -65,7 +64,7 @@ class SmartChunkSplitter:
         language: str,
         base_metadata: dict,
         docstring_prefix: str = "",
-    ) -> List[CodeChunk]:
+    ) -> list[CodeChunk]:
         """
         拆分超大 AST 节点
 
@@ -136,9 +135,9 @@ class SmartChunkSplitter:
 
     def _find_split_points(
         self,
-        lines: List[str],
+        lines: list[str],
         max_tokens: int,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Find optimal split points in the code.
 
@@ -183,7 +182,7 @@ class SmartChunkSplitter:
 
     def _find_max_end_index(
         self,
-        lines: List[str],
+        lines: list[str],
         start_idx: int,
         max_tokens: int,
     ) -> int:
@@ -209,7 +208,7 @@ class SmartChunkSplitter:
 
     def _find_best_split_point(
         self,
-        lines: List[str],
+        lines: list[str],
         start_idx: int,
         end_idx: int,
     ) -> int:
@@ -266,8 +265,8 @@ class SmartChunkSplitter:
 
     def _create_chunks_from_splits(
         self,
-        lines: List[str],
-        split_points: List[int],
+        lines: list[str],
+        split_points: list[int],
         node: ASTNode,
         file_path: str,
         language: str,
@@ -275,7 +274,7 @@ class SmartChunkSplitter:
         context_prefix: str,
         max_tokens: int,
         docstring_prefix: str = "",
-    ) -> List[CodeChunk]:
+    ) -> list[CodeChunk]:
         """Create CodeChunk objects from split points."""
         chunks = []
 

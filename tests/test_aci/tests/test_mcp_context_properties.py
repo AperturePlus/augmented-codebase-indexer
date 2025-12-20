@@ -8,7 +8,6 @@ Property-based tests for MCPContext completeness.
 import asyncio
 from dataclasses import fields
 
-import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -19,7 +18,6 @@ from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
 from aci.infrastructure.metadata_store import IndexMetadataStore
 from aci.mcp.context import MCPContext
 from aci.services import IndexingService, SearchService
-
 
 # Create shared instances to avoid repeated expensive initialization
 _shared_chunker = None

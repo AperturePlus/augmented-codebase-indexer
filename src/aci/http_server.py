@@ -7,19 +7,20 @@ Provides a lightweight FastAPI server to expose indexing and search endpoints.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from aci.core.path_utils import get_collection_name_for_path, is_system_directory
+from aci.core.watch_config import WatchConfig
 from aci.infrastructure.codebase_registry import best_effort_update_registry
-from aci.services.container import create_services
-from aci.services.repository_resolver import resolve_repository
+from aci.infrastructure.file_watcher import FileWatcher
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
-from aci.services import IndexingService, SearchMode, SearchService
+from aci.services import IndexingService, SearchMode, SearchService, WatchService
+from aci.services.container import create_services
 from aci.services.metrics_collector import MetricsCollector
+from aci.services.repository_resolver import resolve_repository
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,31 @@ _indexing_lock = asyncio.Lock()
 
 class IndexRequest(BaseModel):
     path: str
-    workers: Optional[int] = None
+    workers: int | None = None
+
+
+class WatchRequest(BaseModel):
+    """Request model for starting file watch."""
+
+    path: str
+    debounce_ms: int | None = None
+    ignore_patterns: list[str] | None = None
+    verbose: bool | None = None
+
+
+class WatchStatusResponse(BaseModel):
+    """Response model for watch service status."""
+
+    running: bool
+    watch_path: str | None = None
+    debounce_ms: int | None = None
+    started_at: str | None = None
+    events_received: int = 0
+    updates_triggered: int = 0
+    last_update_at: str | None = None
+    last_update_duration_ms: float = 0.0
+    errors: int = 0
+    pending_events: int = 0
 
 
 class SearchResponseItem(BaseModel):
@@ -55,8 +80,18 @@ def _to_response_item(result: SearchResult) -> SearchResponseItem:
     )
 
 
-def create_app() -> FastAPI:
-    """FastAPI application factory (config sourced from .env)."""
+def create_app(
+    watch_path: str | Path | None = None,
+    watch_debounce_ms: int = 2000,
+) -> FastAPI:
+    """
+    FastAPI application factory (config sourced from .env).
+
+    Args:
+        watch_path: Optional path to watch for file changes. If provided,
+                   the watch service will start automatically with the HTTP server.
+        watch_debounce_ms: Debounce delay in milliseconds for file watching.
+    """
     services = create_services()
     cfg = services.config
     embedding_client = services.embedding_client
@@ -90,11 +125,55 @@ def create_app() -> FastAPI:
         metrics_collector=metrics_collector,
     )
 
+    # Watch service state (initialized lazily when /watch/start is called or via watch_path)
+    watch_service_state: dict = {
+        "service": None,
+        "config": cfg,
+        "initial_watch_path": Path(watch_path).resolve() if watch_path else None,
+        "initial_debounce_ms": watch_debounce_ms,
+    }
+
     app = FastAPI(
         title="Augmented Codebase Indexer",
         version="0.1.0",
         description="HTTP interface for semantic code search and indexing.",
     )
+
+    @app.on_event("startup")
+    async def startup_event():
+        """Start watch service if watch_path was provided."""
+        initial_path = watch_service_state.get("initial_watch_path")
+        if initial_path is not None:
+            try:
+                # Create watch configuration
+                watch_config = WatchConfig(
+                    watch_path=initial_path,
+                    debounce_ms=watch_service_state["initial_debounce_ms"],
+                    ignore_patterns=[],
+                    verbose=False,
+                )
+
+                # Create file watcher with config-driven extensions and ignore patterns
+                file_watcher = FileWatcher(
+                    extensions=set(cfg.indexing.file_extensions),
+                    ignore_patterns=list(cfg.indexing.ignore_patterns),
+                )
+
+                # Create watch service with metrics collector
+                watch_service = WatchService(
+                    indexing_service=indexing_service,
+                    file_watcher=file_watcher,
+                    config=watch_config,
+                    metrics_collector=metrics_collector,
+                )
+
+                # Start the watch service
+                await watch_service.start()
+                watch_service_state["service"] = watch_service
+
+                logger.info(f"Watch service started for: {initial_path}")
+            except Exception as e:
+                logger.error(f"Failed to start watch service: {e}")
 
     @app.get("/health")
     async def health():
@@ -106,7 +185,7 @@ def create_app() -> FastAPI:
         return metrics_collector.get_metrics()
 
     @app.get("/status")
-    async def status(path: Optional[str] = None):
+    async def status(path: str | None = None):
         try:
             metadata_stats = metadata_store.get_stats()
 
@@ -227,11 +306,11 @@ def create_app() -> FastAPI:
     async def search(
         q: str,
         path: str,
-        limit: Optional[int] = None,
-        file_filter: Optional[str] = None,
-        use_rerank: Optional[bool] = None,
-        mode: Optional[str] = None,
-        artifact_type: Optional[list[str]] = Query(None),
+        limit: int | None = None,
+        file_filter: str | None = None,
+        use_rerank: bool | None = None,
+        mode: str | None = None,
+        artifact_type: list[str] | None = Query(None),
     ):
         try:
             # Use centralized repository resolution
@@ -284,8 +363,152 @@ def create_app() -> FastAPI:
             logger.error(f"Error in /search: {exc}", exc_info=True)
             raise HTTPException(status_code=500, detail="Internal Server Error")
 
+    @app.post("/watch/start")
+    async def watch_start(req: WatchRequest):
+        """Start watching a directory for file changes."""
+        try:
+            # Check if already watching
+            if watch_service_state["service"] is not None:
+                current_service: WatchService = watch_service_state["service"]
+                if current_service.is_running():
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Watch service is already running. Stop it first.",
+                    )
+
+            # Validate path
+            target_path = Path(req.path).resolve()
+            if not target_path.exists():
+                raise HTTPException(status_code=400, detail="Path does not exist")
+            if not target_path.is_dir():
+                raise HTTPException(status_code=400, detail="Path is not a directory")
+
+            # Security: Block sensitive system directories
+            if is_system_directory(target_path):
+                raise HTTPException(
+                    status_code=403, detail="Watching system directories is forbidden"
+                )
+
+            # Create watch configuration
+            watch_config = WatchConfig(
+                watch_path=target_path,
+                debounce_ms=req.debounce_ms or 2000,
+                ignore_patterns=req.ignore_patterns or [],
+                verbose=req.verbose or False,
+            )
+
+            # Create file watcher with config-driven extensions and ignore patterns
+            combined_ignore_patterns = list(cfg.indexing.ignore_patterns)
+            if req.ignore_patterns:
+                combined_ignore_patterns.extend(req.ignore_patterns)
+
+            file_watcher = FileWatcher(
+                extensions=set(cfg.indexing.file_extensions),
+                ignore_patterns=combined_ignore_patterns,
+            )
+
+            # Create watch service with metrics collector
+            watch_service = WatchService(
+                indexing_service=indexing_service,
+                file_watcher=file_watcher,
+                config=watch_config,
+                metrics_collector=metrics_collector,
+            )
+
+            # Start the watch service
+            await watch_service.start()
+            watch_service_state["service"] = watch_service
+
+            logger.info(f"Watch service started for: {target_path}")
+
+            return {
+                "status": "started",
+                "watch_path": str(target_path),
+                "debounce_ms": watch_config.debounce_ms,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Error in /watch/start: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    @app.post("/watch/stop")
+    async def watch_stop():
+        """Stop the current file watch."""
+        try:
+            watch_service: WatchService | None = watch_service_state["service"]
+
+            if watch_service is None or not watch_service.is_running():
+                raise HTTPException(
+                    status_code=400, detail="Watch service is not running"
+                )
+
+            # Get stats before stopping
+            stats = watch_service.get_stats()
+
+            # Stop the watch service
+            await watch_service.stop()
+            watch_service_state["service"] = None
+
+            logger.info("Watch service stopped")
+
+            return {
+                "status": "stopped",
+                "events_received": stats.events_received,
+                "updates_triggered": stats.updates_triggered,
+                "errors": stats.errors,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Error in /watch/stop: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    @app.get("/watch/status", response_model=WatchStatusResponse)
+    async def watch_status():
+        """Get the current watch service status."""
+        try:
+            watch_service: WatchService | None = watch_service_state["service"]
+
+            if watch_service is None or not watch_service.is_running():
+                return WatchStatusResponse(running=False)
+
+            stats = watch_service.get_stats()
+            config = watch_service.config
+
+            return WatchStatusResponse(
+                running=True,
+                watch_path=str(config.watch_path),
+                debounce_ms=config.debounce_ms,
+                started_at=stats.started_at.isoformat(),
+                events_received=stats.events_received,
+                updates_triggered=stats.updates_triggered,
+                last_update_at=(
+                    stats.last_update_at.isoformat() if stats.last_update_at else None
+                ),
+                last_update_duration_ms=stats.last_update_duration_ms,
+                errors=stats.errors,
+                pending_events=watch_service.get_pending_count(),
+            )
+
+        except Exception as exc:
+            logger.error(f"Error in /watch/status: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(exc))
+
     @app.on_event("shutdown")
     async def shutdown_event():
+        # Stop watch service if running
+        watch_service: WatchService | None = watch_service_state["service"]
+        if watch_service is not None and watch_service.is_running():
+            try:
+                await watch_service.stop()
+                watch_service_state["service"] = None
+                logger.info("Watch service stopped during shutdown")
+            except Exception as e:
+                logger.error(f"Error stopping watch service during shutdown: {e}")
+
         # Close vector store if supported
         close = getattr(vector_store, "close", None)
         if close:

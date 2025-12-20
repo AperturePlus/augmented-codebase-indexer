@@ -6,7 +6,6 @@ Contains ChunkerInterface and ImportExtractorInterface.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
 
 from aci.core.ast_parser import ASTNode
 from aci.core.file_scanner import ScannedFile
@@ -17,7 +16,7 @@ from .models import ChunkingResult
 @dataclass
 class ChunkerConfig:
     """Configuration for chunker instances.
-    
+
     Used to transfer chunker settings across process boundaries
     (e.g., for parallel worker initialization).
     """
@@ -30,7 +29,7 @@ class ChunkerInterface(ABC):
     """Abstract interface for code chunking operations."""
 
     @abstractmethod
-    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> ChunkingResult:
+    def chunk(self, file: ScannedFile, ast_nodes: list[ASTNode]) -> ChunkingResult:
         """
         Split a file into code chunks and generate summaries.
 
@@ -63,7 +62,7 @@ class ChunkerInterface(ABC):
     def get_config(self) -> ChunkerConfig:
         """
         Get the chunker configuration.
-        
+
         Returns configuration values needed to recreate a chunker
         with equivalent settings (e.g., for parallel workers).
 
@@ -77,7 +76,7 @@ class ImportExtractorInterface(ABC):
     """Abstract interface for language-specific import extraction."""
 
     @abstractmethod
-    def extract(self, content: str) -> List[str]:
+    def extract(self, content: str) -> list[str]:
         """
         Extract import statements from code content.
 

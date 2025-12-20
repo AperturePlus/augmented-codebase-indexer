@@ -4,15 +4,17 @@ Property-based tests for Comment Extractor.
 Uses Hypothesis to generate test cases and verify invariants.
 """
 
-import pytest
-from hypothesis import given, strategies as st, assume
 from unittest.mock import Mock
 
+import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
+
 from aci.core.comment_extractor import (
+    CommentCandidate,
+    GoDocExtractor,
     HeuristicScorer,
     JSDocExtractor,
-    GoDocExtractor,
-    CommentCandidate,
 )
 
 
@@ -36,7 +38,7 @@ class TestHeuristicScorerProperties:
             end_line=comment_end_line,
             end_byte=comment_end_line * 50,  # Approximate
         )
-        
+
         score = self.scorer.score(
             candidate,
             node_start_line,
@@ -44,7 +46,7 @@ class TestHeuristicScorerProperties:
             node_name=node_name,
             has_blank_line_between=has_blank_line,
         )
-        
+
         assert 0.0 <= score <= 1.0
 
     @given(
@@ -54,7 +56,7 @@ class TestHeuristicScorerProperties:
     def test_name_match_increases_score(self, comment_end_line, node_name):
         """Test that matching node name in comment increases score."""
         assume(len(node_name) >= 3)  # Ensure meaningful names
-        
+
         # Comment with name mention
         comment_with_name = f"/** Function {node_name} does something */"
         candidate_with = CommentCandidate(
@@ -62,7 +64,7 @@ class TestHeuristicScorerProperties:
             end_line=comment_end_line,
             end_byte=comment_end_line * 50,
         )
-        
+
         # Comment without name mention
         comment_without_name = "/** Function does something */"
         candidate_without = CommentCandidate(
@@ -70,9 +72,9 @@ class TestHeuristicScorerProperties:
             end_line=comment_end_line,
             end_byte=comment_end_line * 50,
         )
-        
+
         node_start_line = comment_end_line + 1
-        
+
         score_with = self.scorer.score(
             candidate_with, node_start_line, node_start_line * 50,
             node_name=node_name, has_blank_line_between=False
@@ -81,7 +83,7 @@ class TestHeuristicScorerProperties:
             candidate_without, node_start_line, node_start_line * 50,
             node_name=node_name, has_blank_line_between=False
         )
-        
+
         # If both scores are non-zero, name match should increase score
         if score_with > 0 and score_without > 0:
             assert score_with >= score_without
@@ -94,7 +96,7 @@ class TestHeuristicScorerProperties:
             end_line=comment_end_line,
             end_byte=comment_end_line * 50,
         )
-        
+
         score = self.scorer.score(
             candidate,
             comment_end_line + 1,
@@ -102,7 +104,7 @@ class TestHeuristicScorerProperties:
             node_name="test",
             has_blank_line_between=True,  # Blank line present
         )
-        
+
         assert score == 0.0
 
     @given(
@@ -116,9 +118,9 @@ class TestHeuristicScorerProperties:
             end_line=comment_end_line,
             end_byte=comment_end_line * 50,
         )
-        
+
         node_start_line = comment_end_line + distance
-        
+
         score = self.scorer.score(
             candidate,
             node_start_line,
@@ -126,7 +128,7 @@ class TestHeuristicScorerProperties:
             node_name="test",
             has_blank_line_between=False,
         )
-        
+
         # Should be rejected due to distance
         assert score == 0.0
 
@@ -138,13 +140,13 @@ class TestHeuristicScorerProperties:
         """Test that doc comment styles get bonus points."""
         doc_comment = f"{comment_style} {comment_content} */" if comment_style.startswith("/*") else f"{comment_style} {comment_content}"
         regular_comment = f"/* {comment_content} */"
-        
+
         doc_candidate = CommentCandidate(text=doc_comment, end_line=5, end_byte=100)
         regular_candidate = CommentCandidate(text=regular_comment, end_line=5, end_byte=100)
-        
+
         doc_score = self.scorer.score(doc_candidate, 6, 120, "test", False)
         regular_score = self.scorer.score(regular_candidate, 6, 120, "test", False)
-        
+
         # Doc styles (/** and ///) should score higher than regular (/* and //)
         if comment_style in ["/**", "///"]:
             if doc_score > 0 and regular_score > 0:
@@ -176,19 +178,19 @@ class TestJSDocExtractorProperties:
         # Avoid comment text that would break JSDoc structure
         assume('*/' not in comment_text)
         assume('/*' not in comment_text)
-        
+
         keyword_str = " ".join(keywords) + " " if keywords else ""
         content = f"""/** {comment_text} */
 {keyword_str}function {function_name}() {{
     return 1;
 }}"""
-        
+
         node = Mock()
         node.start_byte = content.find(keyword_str + "function" if keyword_str else "function")
         node.start_point = (content[:node.start_byte].count('\n'), 0)
-        
+
         result = self.extractor.extract(node, content, None)
-        
+
         # Should extract comment when only allowed keywords are present
         if all(kw in self.extractor.ALLOWED_KEYWORDS for kw in keywords):
             assert result is not None
@@ -216,21 +218,21 @@ class TestJSDocExtractorProperties:
             assume('/*' not in line)
             # Avoid lines that look like function declarations
             assume(not line.strip().startswith('function'))
-        
+
         # Build multi-line JSDoc
         jsdoc_lines = ["/**"]
         for line in comment_lines:
             jsdoc_lines.append(f" * {line}")
         jsdoc_lines.append(" */")
-        
+
         content = "\n".join(jsdoc_lines) + f"\nfunction {function_name}() {{\n    return 1;\n}}"
-        
+
         node = Mock()
         node.start_byte = content.find("function")
         node.start_point = (content[:node.start_byte].count('\n'), 0)
-        
+
         result = self.extractor.extract(node, content, None)
-        
+
         assert result is not None
         # Should contain the original comment structure
         for line in comment_lines:
@@ -247,22 +249,22 @@ class TestJSDocExtractorProperties:
             between_content = "export async"  # Valid keywords
         else:
             between_content = "someVariable = 5;"  # Invalid content
-        
+
         blank_line = "\n\n" if has_blank_line else "\n"
-        
+
         content = f"""/** Test comment */
 {between_content}{blank_line}function test() {{
     return 1;
 }}"""
-        
+
         node = Mock()
         node.start_byte = content.find("function")
         # Calculate line number based on content
         lines_before = content[:content.find("function")].count('\n')
         node.start_point = (lines_before, 0)
-        
+
         result = self.extractor.extract(node, content, None)
-        
+
         # Should be rejected if invalid content or blank line
         if not valid_content or has_blank_line:
             assert result is None
@@ -292,24 +294,24 @@ class TestGoDocExtractorProperties:
     def test_go_doc_extraction_with_blank_lines(self, comment_lines, function_name, has_blank_line):
         """Test Go doc extraction behavior with blank lines."""
         assume(function_name.isidentifier())
-        
+
         # Build Go doc comments
         doc_lines = [f"// {line}" for line in comment_lines]
-        
+
         if has_blank_line:
             content_lines = doc_lines + ["", f"func {function_name}() {{", "}"]
         else:
             content_lines = doc_lines + [f"func {function_name}() {{", "}"]
-        
+
         content = "\n".join(content_lines)
-        
+
         node = Mock()
         node.start_byte = content.rfind("func")
         func_line = len(doc_lines) + (1 if has_blank_line else 0)
         node.start_point = (func_line, 0)
-        
+
         result = self.extractor.extract(node, content, None)
-        
+
         # Should be rejected if blank line exists
         if has_blank_line:
             assert result is None
@@ -353,21 +355,21 @@ class TestGoDocExtractorProperties:
             for doc_line in doc_lines:
                 assume(sep_line.strip() not in doc_line)
                 assume(doc_line.strip() not in sep_line)
-        
+
         # Build content with separate comment blocks
         first_block = [f"// {line}" for line in separator_lines]
         separator = ["package main"]  # Non-comment line
         second_block = [f"// {line}" for line in doc_lines]
         func_line = [f"func {function_name}() {{", "}"]
-        
+
         all_lines = first_block + separator + second_block + func_line
         content = "\n".join(all_lines)
-        
+
         node = Mock()
         node.start_byte = content.find("func")
         func_line_num = len(first_block) + len(separator) + len(second_block)
         node.start_point = (func_line_num, 0)
-        
+
         result = self.extractor.extract(node, content, None)
 
         if result is not None:
@@ -399,19 +401,19 @@ class TestCommentExtractionInvariants:
         """Test that extraction never crashes regardless of input."""
         # Generate some content
         content = "a" * content_size
-        
+
         # Ensure node position is within content
         assume(node_position < len(content))
-        
+
         node = Mock()
         node.start_byte = node_position
         node.start_point = (node_position // 50, node_position % 50)  # Approximate line/col
-        
+
         if extractor_type == 'jsdoc':
             extractor = JSDocExtractor()
         else:
             extractor = GoDocExtractor()
-        
+
         # Should not crash, regardless of result
         try:
             result = extractor.extract(node, content, None)
@@ -427,16 +429,16 @@ class TestCommentExtractionInvariants:
     def test_result_type_invariant(self, comment_text, node_byte_pos):
         """Test that extraction always returns None or non-empty string."""
         content = f"/** {comment_text} */\nfunction test() {{}}"
-        
+
         # Ensure node position is reasonable
         assume(node_byte_pos < len(content))
-        
+
         node = Mock()
         node.start_byte = node_byte_pos
         node.start_point = (1, 0)
-        
+
         extractor = JSDocExtractor()
         result = extractor.extract(node, content, None)
-        
+
         # Result must be None or non-empty string
         assert result is None or (isinstance(result, str) and len(result) > 0)

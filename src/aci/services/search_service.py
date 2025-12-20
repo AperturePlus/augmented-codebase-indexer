@@ -7,7 +7,6 @@ Provides semantic search functionality over indexed codebases.
 import asyncio
 import inspect
 import logging
-from typing import List, Optional
 
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.grep_searcher import GrepSearcherInterface
@@ -37,8 +36,8 @@ class SearchService:
         self,
         embedding_client: EmbeddingClientInterface,
         vector_store: VectorStoreInterface,
-        reranker: Optional[RerankerInterface] = None,
-        grep_searcher: Optional[GrepSearcherInterface] = None,
+        reranker: RerankerInterface | None = None,
+        grep_searcher: GrepSearcherInterface | None = None,
         default_limit: int = 10,
         recall_multiplier: int = 5,
         vector_candidates: int = 20,
@@ -70,13 +69,13 @@ class SearchService:
     async def search(
         self,
         query: str,
-        limit: Optional[int] = None,
-        file_filter: Optional[str] = None,
+        limit: int | None = None,
+        file_filter: str | None = None,
         use_rerank: bool = True,
         search_mode: SearchMode = SearchMode.HYBRID,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         """
         Perform semantic search.
 
@@ -124,12 +123,12 @@ class SearchService:
     async def _dispatch_search(
         self,
         query: str,
-        file_filter: Optional[str],
+        file_filter: str | None,
         search_mode: SearchMode,
         will_rerank: bool,
-        collection_name: Optional[str],
-        artifact_types: Optional[List[str]] = None,
-    ) -> tuple[List[SearchResult], List[SearchResult]]:
+        collection_name: str | None,
+        artifact_types: list[str] | None = None,
+    ) -> tuple[list[SearchResult], list[SearchResult]]:
         """Dispatch search based on mode."""
         # Handle SUMMARY mode: vector-only with summary artifact types
         if search_mode == SearchMode.SUMMARY:
@@ -164,10 +163,10 @@ class SearchService:
 
     def _merge_results(
         self,
-        vector_results: List[SearchResult],
-        grep_results: List[SearchResult],
+        vector_results: list[SearchResult],
+        grep_results: list[SearchResult],
         will_rerank: bool,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Merge and deduplicate vector and grep results."""
         # Normalize scores for hybrid without reranking
         if vector_results and grep_results and not will_rerank:
@@ -186,11 +185,11 @@ class SearchService:
 
     async def _finalize_results(
         self,
-        candidates: List[SearchResult],
+        candidates: list[SearchResult],
         query: str,
         limit: int,
         use_rerank: bool,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Apply reranking or sorting and return final results."""
         if use_rerank and self._reranker and candidates:
             reranked = self._reranker.rerank(query, candidates, limit)
@@ -204,11 +203,11 @@ class SearchService:
     async def _execute_vector_search(
         self,
         query: str,
-        file_filter: Optional[str],
+        file_filter: str | None,
         use_rerank: bool = False,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> list[SearchResult]:
         """Execute vector search and return results."""
         try:
             embeddings = await self._embedding_client.embed_batch([query])
@@ -233,9 +232,9 @@ class SearchService:
     async def _execute_grep_search(
         self,
         query: str,
-        file_filter: Optional[str],
-        collection_name: Optional[str] = None,
-    ) -> List[SearchResult]:
+        file_filter: str | None,
+        collection_name: str | None = None,
+    ) -> list[SearchResult]:
         """Execute grep search and return results."""
         if not self._grep_searcher:
             return []
@@ -255,11 +254,11 @@ class SearchService:
     async def _execute_hybrid_search(
         self,
         query: str,
-        file_filter: Optional[str],
+        file_filter: str | None,
         use_rerank: bool = False,
-        collection_name: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> tuple[List[SearchResult], List[SearchResult]]:
+        collection_name: str | None = None,
+        artifact_types: list[str] | None = None,
+    ) -> tuple[list[SearchResult], list[SearchResult]]:
         """Execute both vector and grep search in parallel."""
         try:
             vector_task = self._execute_vector_search(
@@ -287,8 +286,8 @@ class SearchService:
         self,
         query: str,
         file_path: str,
-        limit: Optional[int] = None,
-    ) -> List[SearchResult]:
+        limit: int | None = None,
+    ) -> list[SearchResult]:
         """Search within a specific file."""
         return await self.search(
             query=query,
@@ -301,7 +300,7 @@ class SearchService:
         self,
         chunk_id: str,
         limit: int = 5,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Find chunks similar to a given chunk."""
         reference = await self._vector_store.get_by_id(chunk_id)
         if not reference:

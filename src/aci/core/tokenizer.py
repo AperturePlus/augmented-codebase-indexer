@@ -5,7 +5,6 @@ Uses tiktoken library for accurate token counting compatible with OpenAI models.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import tiktoken
 
@@ -64,7 +63,7 @@ class TiktokenTokenizer(TokenizerInterface):
                 - 'r50k_base': Used by older GPT-3 models
         """
         self._encoding_name = encoding_name
-        self._encoding: Optional[tiktoken.Encoding] = None
+        self._encoding: tiktoken.Encoding | None = None
 
     @property
     def encoding(self) -> tiktoken.Encoding:

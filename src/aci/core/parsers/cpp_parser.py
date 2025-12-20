@@ -5,7 +5,7 @@ Extracts functions and class/struct definitions using Tree-sitter.
 Includes Doxygen comment extraction.
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
 from aci.core.comment_extractor import extract_doxygen
 from aci.core.parsers.base import ASTNode, LanguageParser
@@ -14,7 +14,7 @@ from aci.core.parsers.base import ASTNode, LanguageParser
 class _CBaseParser(LanguageParser):
     """Shared helpers for C-family parsers."""
 
-    def _find_identifier(self, node: Any, content: str) -> Optional[str]:
+    def _find_identifier(self, node: Any, content: str) -> str | None:
         """Depth-first search for the first identifier-like node."""
         stack = [node]
         while stack:
@@ -25,8 +25,8 @@ class _CBaseParser(LanguageParser):
         return None
 
     def _extract_function(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """Extract a function or method definition/declaration."""
         name = self._find_identifier(node, content)
         if not name:
@@ -58,8 +58,8 @@ class CppParser(_CBaseParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_cpp"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
-        nodes: List[ASTNode] = []
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
+        nodes: list[ASTNode] = []
         self._traverse(root_node, content, nodes, parent_class=None, root=root_node)
         return nodes
 
@@ -67,8 +67,8 @@ class CppParser(_CBaseParser):
         self,
         node: Any,
         content: str,
-        nodes: List[ASTNode],
-        parent_class: Optional[str],
+        nodes: list[ASTNode],
+        parent_class: str | None,
         root: Any,
     ) -> None:
         if node.type in ("class_specifier", "struct_specifier"):
@@ -95,7 +95,7 @@ class CppParser(_CBaseParser):
         for child in node.children:
             self._traverse(child, content, nodes, parent_class, root)
 
-    def _extract_class(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_class(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a C++ class/struct definition."""
         name = self._find_identifier(node, content)
         if not name:
@@ -116,8 +116,8 @@ class CppParser(_CBaseParser):
         )
 
     def _extract_method_from_field(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """
         Extract a method declaration that appears as a field_declaration inside a class.
         This captures declarations like `int compute();` in class bodies.
@@ -160,12 +160,12 @@ class CParser(_CBaseParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_c"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
-        nodes: List[ASTNode] = []
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
+        nodes: list[ASTNode] = []
         self._traverse(root_node, content, nodes, root=root_node)
         return nodes
 
-    def _traverse(self, node: Any, content: str, nodes: List[ASTNode], root: Any) -> None:
+    def _traverse(self, node: Any, content: str, nodes: list[ASTNode], root: Any) -> None:
         if node.type in ("function_definition", "function_declaration"):
             func_node = self._extract_function(node, content, parent_class=None, root=root)
             if func_node:

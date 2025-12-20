@@ -3,8 +3,8 @@ Abstract interfaces for file scanning operations.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Set
 
 from .models import ScannedFile
 
@@ -36,7 +36,7 @@ class FileScannerInterface(ABC):
         pass
 
     @abstractmethod
-    def set_extensions(self, extensions: Set[str]) -> None:
+    def set_extensions(self, extensions: set[str]) -> None:
         """
         Set the file extensions to include in scanning.
 

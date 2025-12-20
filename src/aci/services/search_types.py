@@ -6,7 +6,6 @@ Contains enums and abstract interfaces used by search components.
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List
 
 from aci.infrastructure.vector_store import SearchResult
 
@@ -27,9 +26,9 @@ class RerankerInterface(ABC):
     def rerank(
         self,
         query: str,
-        candidates: List[SearchResult],
+        candidates: list[SearchResult],
         top_k: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Re-rank candidates based on query relevance.
 

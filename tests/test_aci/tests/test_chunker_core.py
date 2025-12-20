@@ -198,10 +198,10 @@ def goodbye():
         """Test chunking extracts class and method metadata."""
         content = '''class Calculator:
     """A simple calculator."""
-    
+
     def add(self, a, b):
         return a + b
-    
+
     def subtract(self, a, b):
         return a - b
 '''

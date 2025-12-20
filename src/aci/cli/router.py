@@ -5,8 +5,9 @@ Routes parsed commands to their appropriate handlers and manages
 command registration, help generation, and error handling.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 from aci.cli.parser import ParsedCommand
 
@@ -26,7 +27,7 @@ class ArgumentInfo:
     name: str
     description: str
     required: bool = True
-    default: Optional[Any] = None
+    default: Any | None = None
 
 
 @dataclass
@@ -60,8 +61,8 @@ class CommandResult:
     """
 
     success: bool
-    message: Optional[str] = None
-    data: Optional[Any] = None
+    message: str | None = None
+    data: Any | None = None
     should_exit: bool = False
 
 
@@ -88,8 +89,8 @@ class CommandRouter:
         handler: CommandHandler,
         description: str,
         usage: str,
-        arguments: Optional[list[ArgumentInfo]] = None,
-        aliases: Optional[list[str]] = None,
+        arguments: list[ArgumentInfo] | None = None,
+        aliases: list[str] | None = None,
     ) -> None:
         """
         Register a command handler.
@@ -154,7 +155,7 @@ class CommandRouter:
         """
         return list(self._command_info.values())
 
-    def get_command_info(self, name: str) -> Optional[CommandInfo]:
+    def get_command_info(self, name: str) -> CommandInfo | None:
         """
         Get information about a specific command.
 

@@ -16,16 +16,17 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
 
 from aci.core.ast_parser import ASTNode, ASTParserInterface, TreeSitterParser
 from aci.core.chunker import ChunkerConfig, ChunkerInterface, CodeChunk, create_chunker
 from aci.core.file_scanner import FileScanner, FileScannerInterface, ScannedFile
 from aci.core.path_utils import get_collection_name_for_path
 from aci.core.summary_artifact import ArtifactType, SummaryArtifact
+from aci.core.summary_generator import SummaryGeneratorInterface
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
@@ -49,13 +50,13 @@ class IndexingService:
         embedding_client: EmbeddingClientInterface,
         vector_store: VectorStoreInterface,
         metadata_store: IndexMetadataStore,
-        file_scanner: Optional[FileScannerInterface] = None,
-        ast_parser: Optional[ASTParserInterface] = None,
-        chunker: Optional[ChunkerInterface] = None,
+        file_scanner: FileScannerInterface | None = None,
+        ast_parser: ASTParserInterface | None = None,
+        chunker: ChunkerInterface | None = None,
         batch_size: int = 32,
         max_workers: int = 4,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
-        metrics_collector: Optional[MetricsCollector] = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+        metrics_collector: MetricsCollector | None = None,
     ):
         """
         Initialize the indexing service.
@@ -82,10 +83,10 @@ class IndexingService:
         self._max_workers = max_workers
         self._progress_callback = progress_callback
         self._metrics_collector = metrics_collector
-        
+
         # Extract chunker config for parallel workers
         self._chunker_config = self._extract_chunker_config(self._chunker)
-        
+
         # Check for pending batches from previous runs
         self._check_pending_batches_on_startup()
 
@@ -117,17 +118,17 @@ class IndexingService:
     def cleanup_pending_batches(self) -> int:
         """
         Clean up all pending batches from previous failed runs.
-        
+
         This method should be called manually to recover from incomplete
         indexing operations. It rolls back each pending batch, removing
         any associated file metadata.
-        
+
         Returns:
             Number of batches cleaned up
         """
         pending_batches = self._metadata_store.get_pending_batches()
         cleaned_count = 0
-        
+
         for batch in pending_batches:
             logger.info(
                 f"Cleaning up pending batch: {batch.batch_id}",
@@ -143,13 +144,13 @@ class IndexingService:
                 logger.info(f"Successfully cleaned up batch: {batch.batch_id}")
             else:
                 logger.warning(f"Failed to clean up batch: {batch.batch_id}")
-        
+
         if cleaned_count > 0:
             logger.info(
                 f"Cleaned up {cleaned_count} pending batch(es)",
                 extra={"cleaned_count": cleaned_count},
             )
-        
+
         return cleaned_count
 
     def _report_progress(self, current: int, total: int, message: str) -> None:
@@ -159,7 +160,7 @@ class IndexingService:
         logger.info(f"Progress: {current}/{total} - {message}")
 
     async def index_directory(
-        self, root_path: Path, *, max_workers: Optional[int] = None
+        self, root_path: Path, *, max_workers: int | None = None
     ) -> IndexingResult:
         """
         Index all files in a directory.
@@ -175,16 +176,16 @@ class IndexingService:
         """
         start_time = time.time()
         result = IndexingResult()
-        
+
         logger.debug(f"index_directory: starting for {root_path}")
-        
+
         effective_workers = self._max_workers if max_workers is None else max_workers
 
         # Generate and set collection name for this repository
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
         logger.debug(f"index_directory: collection_name={collection_name}")
-        
+
         # Register repository with collection name
         self._metadata_store.register_repository(abs_root, collection_name)
         logger.debug("index_directory: repository registered")
@@ -202,8 +203,8 @@ class IndexingService:
 
         # Process files in parallel and collect chunks and summaries
         self._report_progress(0, total_files, "Processing files...")
-        all_chunks: List[CodeChunk] = []
-        all_summaries: List[SummaryArtifact] = []
+        all_chunks: list[CodeChunk] = []
+        all_summaries: list[SummaryArtifact] = []
 
         if effective_workers > 1 and total_files > 1:
             all_chunks, all_summaries, result = await self._process_files_parallel(
@@ -223,7 +224,7 @@ class IndexingService:
             )
 
         result.duration_seconds = time.time() - start_time
-        
+
         # Log indexing summary with structured fields
         logger.info(
             "Indexing completed",
@@ -233,41 +234,41 @@ class IndexingService:
                 "duration_seconds": result.duration_seconds,
             },
         )
-        
+
         # Record metrics if collector is available
         if self._metrics_collector:
             self._metrics_collector.record_indexing_complete(
                 result.total_chunks, result.total_files, result.duration_seconds
             )
-        
+
         return result
 
     async def _process_files_parallel(
         self,
-        files: List[ScannedFile],
+        files: list[ScannedFile],
         result: IndexingResult,
         total_files: int,
         max_workers: int,
-    ) -> Tuple[List[CodeChunk], List[SummaryArtifact], IndexingResult]:
+    ) -> tuple[list[CodeChunk], list[SummaryArtifact], IndexingResult]:
         """
         Process files in parallel using ProcessPoolExecutor.
-        
+
         Uses ProcessPoolExecutor for true parallelism of CPU-bound tasks
         (parsing and chunking). Workers are initialized with shared
         parser/chunker instances to avoid overhead.
-        
+
         After parallel chunk processing completes, summary generation is
         performed in the main process as a post-processing step. This is
         necessary because SummaryGenerator cannot be serialized across
         process boundaries.
         """
-        all_chunks: List[CodeChunk] = []
-        all_summaries: List[SummaryArtifact] = []
+        all_chunks: list[CodeChunk] = []
+        all_summaries: list[SummaryArtifact] = []
         # Track successfully processed files for post-processing summary generation
-        successfully_processed_files: List[ScannedFile] = []
+        successfully_processed_files: list[ScannedFile] = []
         loop = asyncio.get_running_loop()
         mp_context = self._get_process_pool_mp_context()
-        
+
         try:
             executor_kwargs = {
                 "max_workers": max_workers,
@@ -295,12 +296,12 @@ class IndexingService:
                         scanned_file.size_bytes,
                     )
                     futures.append((future, scanned_file))
-                
+
                 processed_count = 0
                 for future, scanned_file in futures:
                     try:
                         file_path, chunks_data, language, line_count, content_hash, error = await future
-                        
+
                         if error:
                             result.failed_files.append(file_path)
                         else:
@@ -321,7 +322,7 @@ class IndexingService:
                             result.total_files += 1
                             # Track successfully processed file for summary generation
                             successfully_processed_files.append(scanned_file)
-                            
+
                             for chunk in chunks:
                                 chunk.metadata["_pending_file_info"] = {
                                     "file_path": file_path,
@@ -331,15 +332,15 @@ class IndexingService:
                                     "chunk_count": len(chunks),
                                     "modified_time": scanned_file.modified_time,
                                 }
-                            
+
                     except Exception as e:
                         logger.error(f"Failed to process {scanned_file.path}: {e}")
                         result.failed_files.append(str(scanned_file.path))
-                    
+
                     processed_count += 1
                     if processed_count % 10 == 0 or processed_count == total_files:
                         self._report_progress(
-                            processed_count, total_files, 
+                            processed_count, total_files,
                             f"Processed {processed_count} files"
                         )
         except Exception as exc:
@@ -400,13 +401,13 @@ class IndexingService:
 
     async def _process_files_sequential(
         self,
-        files: List[ScannedFile],
+        files: list[ScannedFile],
         result: IndexingResult,
         total_files: int,
-    ) -> Tuple[List[CodeChunk], List[SummaryArtifact], IndexingResult]:
+    ) -> tuple[list[CodeChunk], list[SummaryArtifact], IndexingResult]:
         """Process files sequentially (fallback for single worker)."""
-        all_chunks: List[CodeChunk] = []
-        all_summaries: List[SummaryArtifact] = []
+        all_chunks: list[CodeChunk] = []
+        all_summaries: list[SummaryArtifact] = []
 
         for i, scanned_file in enumerate(files):
             try:
@@ -467,35 +468,35 @@ class IndexingService:
             )
 
     def _generate_summaries_for_files(
-        self, files: List[ScannedFile]
-    ) -> List[SummaryArtifact]:
+        self, files: list[ScannedFile]
+    ) -> list[SummaryArtifact]:
         """
         Generate summaries for a list of files in post-processing.
-        
+
         This method is used after parallel chunk processing to generate
         summary artifacts. It re-parses AST nodes and invokes the chunker's
         summary generator for each file.
-        
+
         Args:
             files: List of successfully processed ScannedFile objects
-            
+
         Returns:
             List of SummaryArtifact objects generated from all files
         """
-        all_summaries: List[SummaryArtifact] = []
-        
+        all_summaries: list[SummaryArtifact] = []
+
         # Check if chunker has a summary generator
         if not hasattr(self._chunker, "_summary_generator"):
             return all_summaries
-        
+
         summary_generator = getattr(self._chunker, "_summary_generator", None)
         if summary_generator is None:
             return all_summaries
-        
+
         logger.debug(
             f"Generating summaries for {len(files)} files in post-processing"
         )
-        
+
         for scanned_file in files:
             try:
                 file_summaries = self._generate_summaries_for_single_file(
@@ -507,7 +508,7 @@ class IndexingService:
                     f"Failed to generate summaries for {scanned_file.path}: {e}"
                 )
                 # Continue processing other files
-        
+
         logger.debug(f"Generated {len(all_summaries)} summaries in post-processing")
         return all_summaries
 
@@ -515,44 +516,43 @@ class IndexingService:
         self,
         scanned_file: ScannedFile,
         summary_generator: "SummaryGeneratorInterface",
-    ) -> List[SummaryArtifact]:
+    ) -> list[SummaryArtifact]:
         """
         Generate summaries for a single file.
-        
+
         Re-parses AST nodes and generates function, class, and file summaries.
-        
+
         Args:
             scanned_file: The file to generate summaries for
             summary_generator: The summary generator to use
-            
+
         Returns:
             List of SummaryArtifact objects for this file
         """
-        from aci.core.summary_generator import SummaryGeneratorInterface
-        
-        summaries: List[SummaryArtifact] = []
+
+        summaries: list[SummaryArtifact] = []
         file_path = str(scanned_file.path)
-        
+
         # Parse AST nodes
         ast_nodes = []
         if self._ast_parser.supports_language(scanned_file.language):
             ast_nodes = self._ast_parser.parse(
                 scanned_file.content, scanned_file.language
             )
-        
+
         # Extract imports for file summary
         imports = self._extract_imports_for_summary(
             scanned_file.content, scanned_file.language
         )
-        
+
         # Group methods by parent class for class summary generation
-        class_methods: dict[str, List[ASTNode]] = {}
+        class_methods: dict[str, list[ASTNode]] = {}
         for node in ast_nodes:
             if node.node_type == "method" and node.parent_name:
                 if node.parent_name not in class_methods:
                     class_methods[node.parent_name] = []
                 class_methods[node.parent_name].append(node)
-        
+
         # Generate summaries for each node
         for node in ast_nodes:
             if node.node_type == "function":
@@ -586,7 +586,7 @@ class IndexingService:
                     logger.warning(
                         f"Failed to generate class summary for {node.name}: {e}"
                     )
-        
+
         # Generate file summary
         try:
             file_summary = summary_generator.generate_file_summary(
@@ -598,22 +598,22 @@ class IndexingService:
             summaries.append(file_summary)
         except Exception as e:
             logger.warning(f"Failed to generate file summary for {file_path}: {e}")
-        
+
         return summaries
 
     def _extract_imports_for_summary(
         self, content: str, language: str
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Extract imports from file content for summary generation.
-        
+
         Uses the chunker's import registry if available, otherwise returns
         an empty list.
-        
+
         Args:
             content: File content
             language: Programming language
-            
+
         Returns:
             List of import statements
         """
@@ -625,20 +625,20 @@ class IndexingService:
 
     async def _embed_and_store_chunks(
         self,
-        chunks: List[CodeChunk],
-        summaries: Optional[List[SummaryArtifact]] = None,
-        collection_name: Optional[str] = None,
+        chunks: list[CodeChunk],
+        summaries: list[SummaryArtifact] | None = None,
+        collection_name: str | None = None,
     ) -> None:
         """
         Generate embeddings and store chunks and summaries in batches.
-        
+
         Uses pending batch tracking to maintain consistency between Qdrant
         and SQLite. If a batch fails, the pending batch is rolled back.
-        
+
         Args:
             chunks: List of code chunks to embed and store
             summaries: Optional list of summary artifacts to embed and store
-            
+
         Raises:
             IndexingError: If embedding API returns fewer vectors than expected
         """
@@ -646,7 +646,7 @@ class IndexingService:
         total_chunks = len(chunks)
         total_summaries = len(summaries)
         total_items = total_chunks + total_summaries
-        
+
         # Track files already persisted to avoid duplicate metadata writes
         persisted_files: set[str] = set()
 
@@ -654,30 +654,30 @@ class IndexingService:
         for i in range(0, total_chunks, self._batch_size):
             batch = chunks[i : i + self._batch_size]
             batch_index = i // self._batch_size
-            
+
             # Generate batch_id for pending batch tracking
             batch_id = f"batch_{uuid.uuid4().hex[:12]}"
-            
+
             # Collect file paths and chunk IDs for this batch
             batch_file_paths = list({
                 chunk.metadata.get("_pending_file_info", {}).get("file_path", chunk.file_path)
                 for chunk in batch
             })
             batch_chunk_ids = [chunk.chunk_id for chunk in batch]
-            
+
             # Create pending batch marker before any writes
             self._metadata_store.create_pending_batch(
                 batch_id, batch_file_paths, batch_chunk_ids
             )
-            
+
             try:
                 texts = [chunk.content for chunk in batch]
-                
+
                 # Time embedding API call
                 embed_start = time.time()
                 embeddings = await self._embedding_client.embed_batch(texts)
                 embed_latency_ms = (time.time() - embed_start) * 1000
-                
+
                 # Log embedding latency with structured fields
                 logger.info(
                     "Embedding batch completed",
@@ -687,7 +687,7 @@ class IndexingService:
                         "chunk_count": len(texts),
                     },
                 )
-                
+
                 # Record metrics if collector is available
                 if self._metrics_collector:
                     self._metrics_collector.record_embedding_latency(embed_latency_ms)
@@ -704,12 +704,12 @@ class IndexingService:
 
                 # Collect file info from this batch before writing vectors
                 batch_file_infos: dict[str, dict] = {}
-                
+
                 # Time Qdrant upsert operations
                 qdrant_start = time.time()
-                for chunk, embedding in zip(batch, embeddings):
+                for chunk, embedding in zip(batch, embeddings, strict=False):
                     pending_info = chunk.metadata.pop("_pending_file_info", None)
-                    
+
                     payload = {
                         "file_path": chunk.file_path,
                         "start_line": chunk.start_line,
@@ -726,13 +726,13 @@ class IndexingService:
                         payload,
                         collection_name=collection_name,
                     )
-                    
+
                     file_path = pending_info["file_path"] if pending_info else None
                     if file_path and file_path not in persisted_files:
                         batch_file_infos[file_path] = pending_info
-                
+
                 qdrant_duration_ms = (time.time() - qdrant_start) * 1000
-                
+
                 # Log Qdrant operation with structured fields
                 logger.info(
                     "Qdrant upsert completed",
@@ -742,7 +742,7 @@ class IndexingService:
                         "batch_index": batch_index,
                     },
                 )
-                
+
                 # Record metrics if collector is available
                 if self._metrics_collector:
                     self._metrics_collector.record_qdrant_duration(
@@ -763,10 +763,10 @@ class IndexingService:
                         )
                     )
                     persisted_files.add(file_path)
-                
+
                 # Batch completed successfully, clear pending marker
                 self._metadata_store.complete_pending_batch(batch_id)
-                
+
             except Exception as e:
                 # Rollback pending batch on failure
                 logger.error(f"Batch {batch_id} failed: {e}. Rolling back.")
@@ -799,7 +799,7 @@ class IndexingService:
                         actual=len(embeddings),
                     )
 
-                for summary, embedding in zip(batch, embeddings):
+                for summary, embedding in zip(batch, embeddings, strict=False):
                     payload = {
                         "file_path": summary.file_path,
                         "start_line": summary.start_line,
@@ -823,7 +823,7 @@ class IndexingService:
                 )
 
     async def update_incremental(
-        self, root_path: Path, *, max_workers: Optional[int] = None
+        self, root_path: Path, *, max_workers: int | None = None
     ) -> IndexingResult:
         """
         Perform incremental update of the index.
@@ -833,16 +833,16 @@ class IndexingService:
         """
         start_time = time.time()
         result = IndexingResult()
-        
+
         effective_workers = self._max_workers if max_workers is None else max_workers
 
         abs_root = str(root_path.resolve())
         collection_name = get_collection_name_for_path(abs_root)
-        
+
         self._metadata_store.register_repository(abs_root, collection_name)
 
         self._report_progress(0, 0, "Loading existing index metadata...")
-        existing_hashes = self._metadata_store.get_all_file_hashes()
+        existing_hashes = self._metadata_store.get_file_hashes_under_root(abs_root)
 
         self._report_progress(0, 0, "Scanning files...")
         current_files = {str(f.path): f for f in self._file_scanner.scan(root_path)}
@@ -896,8 +896,8 @@ class IndexingService:
                     )
 
         files_to_process = [current_files[p] for p in (new_paths | modified_paths)]
-        all_chunks: List[CodeChunk] = []
-        all_summaries: List[SummaryArtifact] = []
+        all_chunks: list[CodeChunk] = []
+        all_summaries: list[SummaryArtifact] = []
 
         if files_to_process:
             total_to_process = len(files_to_process)
@@ -920,7 +920,7 @@ class IndexingService:
             )
 
         result.duration_seconds = time.time() - start_time
-        
+
         # Log indexing summary with structured fields
         logger.info(
             "Indexing completed",
@@ -930,13 +930,13 @@ class IndexingService:
                 "duration_seconds": result.duration_seconds,
             },
         )
-        
+
         # Record metrics if collector is available
         if self._metrics_collector:
             self._metrics_collector.record_indexing_complete(
                 result.total_chunks, result.total_files, result.duration_seconds
             )
-        
+
         logger.info(
             f"Incremental update completed in {result.duration_seconds:.2f}s: "
             f"{result.total_files} files, {result.total_chunks} chunks, "

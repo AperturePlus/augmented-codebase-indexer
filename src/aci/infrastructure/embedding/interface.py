@@ -1,14 +1,13 @@
 """Abstract interface for embedding clients."""
 
 from abc import ABC, abstractmethod
-from typing import List
 
 
 class EmbeddingClientInterface(ABC):
     """Abstract interface for embedding clients."""
 
     @abstractmethod
-    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a batch of texts.
 

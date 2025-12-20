@@ -67,7 +67,7 @@ class TestMCPPathValidationConsistency:
 
             ctx = _create_mock_context(indexing_service=mock_indexing_service)
 
-            result = run_async(_handle_index_codebase({"path": str(test_path)}, ctx))
+            run_async(_handle_index_codebase({"path": str(test_path)}, ctx))
             assert mock_indexing_service.index_directory.called
 
     @settings(max_examples=100, deadline=None)
@@ -95,7 +95,7 @@ class TestMCPPathValidationConsistency:
                 metadata_store=mock_metadata_store,
             )
 
-            result = run_async(_handle_update_index({"path": str(test_path)}, ctx))
+            run_async(_handle_update_index({"path": str(test_path)}, ctx))
             assert mock_indexing_service.update_incremental.called
 
     @settings(max_examples=100, deadline=None)

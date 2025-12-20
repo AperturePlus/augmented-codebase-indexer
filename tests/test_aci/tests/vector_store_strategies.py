@@ -1,6 +1,6 @@
 """Shared strategies for vector store property tests."""
 
-from hypothesis import HealthCheck, strategies as st
+from hypothesis import strategies as st
 
 # Strategies for generating test data
 chunk_id_strategy = st.text(alphabet=st.characters(whitelist_categories=("L", "N")), min_size=1, max_size=36)

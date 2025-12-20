@@ -6,10 +6,10 @@ SQLite-based storage for index metadata, file tracking, and statistics.
 
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .models import IndexedFileInfo, MetadataStoreError, PendingBatch
 from .queries import MetadataQueryExecutor, _now_with_tz
@@ -28,8 +28,8 @@ class IndexMetadataStore:
 
     def __init__(self, db_path: Path | str):
         self._db_path = Path(db_path)
-        self._conn: Optional[sqlite3.Connection] = None
-        self._query: Optional[MetadataQueryExecutor] = None
+        self._conn: sqlite3.Connection | None = None
+        self._query: MetadataQueryExecutor | None = None
         self._initialized = False
 
     @property
@@ -71,7 +71,7 @@ class IndexMetadataStore:
     # File Operations
     # ─────────────────────────────────────────────────────────────────
 
-    def get_file_info(self, file_path: str) -> Optional[IndexedFileInfo]:
+    def get_file_info(self, file_path: str) -> IndexedFileInfo | None:
         """Get information about an indexed file."""
         try:
             row = self._ensure_query().get_file(file_path)
@@ -100,7 +100,7 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to upsert file: {e}") from e
 
-    def upsert_files_batch(self, files: List[IndexedFileInfo]) -> None:
+    def upsert_files_batch(self, files: list[IndexedFileInfo]) -> None:
         """Batch insert or update file index information."""
         try:
             self._ensure_query().upsert_files_batch([
@@ -118,14 +118,14 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to delete file: {e}") from e
 
-    def delete_files_batch(self, file_paths: List[str]) -> int:
+    def delete_files_batch(self, file_paths: list[str]) -> int:
         """Batch delete file index information. Returns count deleted."""
         try:
             return self._ensure_query().delete_files_batch(file_paths)
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to batch delete files: {e}") from e
 
-    def get_files_older_than(self, days: int) -> List[str]:
+    def get_files_older_than(self, days: int) -> list[str]:
         """Get files indexed more than N days ago."""
         try:
             cutoff = _now_with_tz() - timedelta(days=days)
@@ -133,14 +133,28 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to query old files: {e}") from e
 
-    def get_all_file_hashes(self) -> Dict[str, str]:
+    def get_all_file_hashes(self) -> dict[str, str]:
         """Get all file paths and their content hashes."""
         try:
             return self._ensure_query().get_all_file_hashes()
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get file hashes: {e}") from e
 
-    def get_all_files(self) -> List[IndexedFileInfo]:
+    def get_file_hashes_under_root(self, root_path: Path | str) -> dict[str, str]:
+        """
+        Get all file paths and their content hashes for a given repository root.
+
+        This is used to scope incremental updates to a single repository when a
+        metadata database tracks multiple roots.
+        """
+        try:
+            root = Path(root_path).resolve()
+            root_prefix = str(root).rstrip(os.sep) + os.sep
+            return self._ensure_query().get_file_hashes_by_prefix(root_prefix)
+        except sqlite3.Error as e:
+            raise MetadataStoreError(f"Failed to get file hashes for root: {e}") from e
+
+    def get_all_files(self) -> list[IndexedFileInfo]:
         """Get all indexed files."""
         try:
             return [
@@ -158,7 +172,7 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get all files: {e}") from e
 
-    def get_stale_files(self, limit: Optional[int] = None) -> List[tuple[str, float]]:
+    def get_stale_files(self, limit: int | None = None) -> list[tuple[str, float]]:
         """Get files where modified_time exceeds indexed_at (stale files)."""
         try:
             raw_data = self._ensure_query().get_stale_files_raw()
@@ -177,7 +191,7 @@ class IndexMetadataStore:
     # Statistics
     # ─────────────────────────────────────────────────────────────────
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get index statistics."""
         try:
             query = self._ensure_query()
@@ -197,7 +211,7 @@ class IndexMetadataStore:
     # ─────────────────────────────────────────────────────────────────
 
     def set_index_info(
-        self, index_id: str, root_path: str, collection_name: Optional[str] = None
+        self, index_id: str, root_path: str, collection_name: str | None = None
     ) -> None:
         """Set or update index metadata."""
         try:
@@ -205,11 +219,11 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to set index info: {e}") from e
 
-    def register_repository(self, root_path: str, collection_name: Optional[str] = None) -> None:
+    def register_repository(self, root_path: str, collection_name: str | None = None) -> None:
         """Register or update a repository root path."""
         self.set_index_info(index_id=root_path, root_path=root_path, collection_name=collection_name)
 
-    def get_repositories(self) -> List[Dict]:
+    def get_repositories(self) -> list[dict]:
         """Get all registered repositories."""
         try:
             return [
@@ -224,7 +238,7 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get repositories: {e}") from e
 
-    def get_index_info(self, index_id: str) -> Optional[Dict]:
+    def get_index_info(self, index_id: str) -> dict | None:
         """Get index metadata."""
         try:
             row = self._ensure_query().get_index_info(index_id)
@@ -240,27 +254,27 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to get index info: {e}") from e
 
-    def get_collection_name(self, root_path: str) -> Optional[str]:
+    def get_collection_name(self, root_path: str) -> str | None:
         """Get the collection name for a repository."""
         info = self.get_index_info(root_path)
         return info.get("collection_name") if info else None
 
-    def find_parent_index(self, path: str) -> Optional[Dict]:
+    def find_parent_index(self, path: str) -> dict | None:
         """Find an indexed repository that contains the given path.
-        
+
         If path itself is indexed, returns that. Otherwise walks up the
         directory tree to find a parent that was indexed.
-        
+
         Returns:
             Index info dict if found, None otherwise.
         """
         from pathlib import Path
-        
+
         # First check exact match
         info = self.get_index_info(path)
         if info is not None:
             return info
-        
+
         # Walk up parent directories
         current = Path(path).resolve()
         for parent in current.parents:
@@ -268,7 +282,7 @@ class IndexMetadataStore:
             info = self.get_index_info(parent_str)
             if info is not None:
                 return info
-        
+
         return None
 
     # ─────────────────────────────────────────────────────────────────
@@ -276,7 +290,7 @@ class IndexMetadataStore:
     # ─────────────────────────────────────────────────────────────────
 
     def create_pending_batch(
-        self, batch_id: str, file_paths: List[str], chunk_ids: List[str]
+        self, batch_id: str, file_paths: list[str], chunk_ids: list[str]
     ) -> None:
         """Create a pending batch marker before writing to stores."""
         try:
@@ -297,7 +311,7 @@ class IndexMetadataStore:
         except sqlite3.Error as e:
             raise MetadataStoreError(f"Failed to complete pending batch: {e}") from e
 
-    def get_pending_batches(self) -> List[PendingBatch]:
+    def get_pending_batches(self) -> list[PendingBatch]:
         """Get all pending batches."""
         try:
             return [

@@ -46,7 +46,7 @@ def file_structure_strategy(draw):
     files = []
     num_files = draw(st.integers(min_value=1, max_value=20))
 
-    for i in range(num_files):
+    for _i in range(num_files):
         # Randomly choose depth (0-2 subdirectories)
         depth = draw(st.integers(min_value=0, max_value=2))
 

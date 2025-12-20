@@ -6,7 +6,7 @@ and fixed-size fallback for unsupported languages.
 """
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from aci.core.ast_parser import ASTNode
 from aci.core.docstring_formatter import DocstringFormatter
@@ -43,9 +43,9 @@ class Chunker(ChunkerInterface):
         max_tokens: int = 8192,
         fixed_chunk_lines: int = 50,
         overlap_lines: int = 5,
-        import_registry: Optional[ImportExtractorRegistry] = None,
-        smart_splitter: Optional[SmartChunkSplitter] = None,
-        docstring_formatter: Optional[DocstringFormatter] = None,
+        import_registry: ImportExtractorRegistry | None = None,
+        smart_splitter: SmartChunkSplitter | None = None,
+        docstring_formatter: DocstringFormatter | None = None,
         summary_generator: Optional["SummaryGeneratorInterface"] = None,
     ):
         """
@@ -82,7 +82,7 @@ class Chunker(ChunkerInterface):
             overlap_lines=self._overlap_lines,
         )
 
-    def chunk(self, file: ScannedFile, ast_nodes: List[ASTNode]) -> ChunkingResult:
+    def chunk(self, file: ScannedFile, ast_nodes: list[ASTNode]) -> ChunkingResult:
         """
         Split a file into code chunks and generate summaries.
 
@@ -120,10 +120,10 @@ class Chunker(ChunkerInterface):
     def _chunk_with_ast(
         self,
         file: ScannedFile,
-        ast_nodes: List[ASTNode],
+        ast_nodes: list[ASTNode],
         base_metadata: dict,
-        imports: List[str],
-    ) -> tuple[List[CodeChunk], List[SummaryArtifact]]:
+        imports: list[str],
+    ) -> tuple[list[CodeChunk], list[SummaryArtifact]]:
         """
         Create chunks based on AST nodes and generate summaries.
 
@@ -140,7 +140,7 @@ class Chunker(ChunkerInterface):
         summaries = []
 
         # Group methods by parent class for class summary generation
-        class_methods: dict[str, List[ASTNode]] = {}
+        class_methods: dict[str, list[ASTNode]] = {}
         for node in ast_nodes:
             if node.node_type == "method" and node.parent_name:
                 if node.parent_name not in class_methods:
@@ -243,7 +243,7 @@ class Chunker(ChunkerInterface):
         self,
         file: ScannedFile,
         base_metadata: dict,
-    ) -> List[CodeChunk]:
+    ) -> list[CodeChunk]:
         """
         Create fixed-size chunks for files without AST support.
 
@@ -299,7 +299,7 @@ class Chunker(ChunkerInterface):
 
 
 def create_chunker(
-    tokenizer: Optional[TokenizerInterface] = None,
+    tokenizer: TokenizerInterface | None = None,
     max_tokens: int = 8192,
     fixed_chunk_lines: int = 50,
     overlap_lines: int = 5,

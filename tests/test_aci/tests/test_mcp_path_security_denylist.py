@@ -3,7 +3,8 @@
 import tempfile
 from pathlib import Path
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 
 class TestSensitiveDenylistEnforcement:
@@ -26,7 +27,7 @@ class TestSensitiveDenylistEnforcement:
     )
     def test_sensitive_files_never_yielded(self, user_patterns: list[str]):
         """Sensitive files should be excluded regardless of user patterns."""
-        from aci.core.file_scanner import FileScanner, SENSITIVE_DENYLIST
+        from aci.core.file_scanner import FileScanner
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -276,7 +277,7 @@ class TestSensitiveDenylistPatterns:
             (".env.development", ".env.*"),
         ]
 
-        for filename, pattern in glob_matches:
+        for filename, _pattern in glob_matches:
             path = Path(f"/some/path/{filename}")
             assert scanner._matches_sensitive_denylist(path)
 

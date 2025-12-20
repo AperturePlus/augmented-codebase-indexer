@@ -135,11 +135,11 @@ class CommandCompleter(Completer):
 
             for entry in sorted(base_dir.iterdir()):
                 name = entry.name
-                
+
                 # Skip hidden paths (starting with . or $, or Windows hidden attribute)
                 if self._is_hidden_path(entry):
                     continue
-                
+
                 if prefix and not name.lower().startswith(prefix.lower()):
                     continue
 
@@ -172,11 +172,11 @@ class CommandCompleter(Completer):
             True if the path is hidden.
         """
         name = path.name
-        
+
         # Skip paths starting with . or $ (common hidden/system patterns)
         if name.startswith(".") or name.startswith("$"):
             return True
-        
+
         # On Windows, also check the hidden file attribute
         if sys.platform == "win32":
             try:
@@ -186,5 +186,5 @@ class CommandCompleter(Completer):
                     return True
             except (OSError, AttributeError):
                 pass
-        
+
         return False

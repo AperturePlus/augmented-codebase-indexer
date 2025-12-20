@@ -8,7 +8,6 @@ components.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from aci.core.chunker import Chunker, create_chunker
 from aci.core.config import ACIConfig, load_config
@@ -54,12 +53,12 @@ class ServicesContainer:
     metadata_store: IndexMetadataStore
     file_scanner: FileScanner
     chunker: Chunker
-    reranker: Optional[RerankerInterface] = None
+    reranker: RerankerInterface | None = None
 
 
 def create_services(
-    config_path: Optional[Path] = None,
-    metadata_db_path: Optional[Path] = None,
+    config_path: Path | None = None,
+    metadata_db_path: Path | None = None,
 ) -> ServicesContainer:
     """
     Create and initialize all services.
@@ -126,7 +125,7 @@ def create_services(
     )
 
     # Create reranker if enabled
-    reranker: Optional[RerankerInterface] = None
+    reranker: RerankerInterface | None = None
     if config.search.use_rerank:
         if config.search.rerank_api_url:
             reranker = OpenAICompatibleReranker(

@@ -44,11 +44,11 @@ CREATE TABLE IF NOT EXISTS pending_batches (
 );
 
 -- Indexes for efficient queries
-CREATE INDEX IF NOT EXISTS idx_files_indexed_at 
+CREATE INDEX IF NOT EXISTS idx_files_indexed_at
     ON indexed_files(indexed_at);
-CREATE INDEX IF NOT EXISTS idx_files_modified 
+CREATE INDEX IF NOT EXISTS idx_files_modified
     ON indexed_files(modified_time);
-CREATE INDEX IF NOT EXISTS idx_files_language 
+CREATE INDEX IF NOT EXISTS idx_files_language
     ON indexed_files(language);
 """
 

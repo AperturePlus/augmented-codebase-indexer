@@ -12,7 +12,7 @@ Provides proper gitignore pattern parsing and matching with support for:
 
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import pathspec
@@ -109,7 +109,7 @@ class GitignoreManager:
             case_sensitive: Override case sensitivity (None = auto-detect from platform)
         """
         self._root_path = Path(root_path).resolve()
-        
+
         # Auto-detect case sensitivity based on platform if not specified
         if case_sensitive is None:
             # Windows is case-insensitive, POSIX is case-sensitive
@@ -119,7 +119,7 @@ class GitignoreManager:
 
         # Store patterns with their metadata
         self._patterns: list[GitignorePattern] = []
-        
+
         # Compiled pathspec for efficient matching (rebuilt when patterns change)
         self._pathspec: pathspec.PathSpec | None = None
         self._pathspec_dirty = True
@@ -145,7 +145,7 @@ class GitignoreManager:
             No exceptions - all errors are logged and the method returns gracefully
         """
         gitignore_path = Path(gitignore_path).resolve()
-        
+
         if not gitignore_path.exists():
             logger.debug(f"Gitignore file not found: {gitignore_path}")
             return 0
@@ -266,12 +266,12 @@ class GitignoreManager:
             patterns: List of gitignore-style patterns
         """
         virtual_source = self._root_path / ".gitignore.defaults"
-        
+
         for raw_pattern in patterns:
             raw_pattern = raw_pattern.strip()
             if not raw_pattern or raw_pattern.startswith("#"):
                 continue
-            
+
             pattern = GitignorePattern.parse(raw_pattern, virtual_source, source_depth=-1)
             # Insert at the beginning so they have lowest precedence
             self._patterns.insert(0, pattern)
@@ -537,12 +537,12 @@ class GitignoreManager:
                 source_dir_str = source_dir.replace("\\", "/")
                 if not self._case_sensitive:
                     source_dir_str = source_dir_str.lower()
-                
+
                 # Check if the path is under the gitignore's directory
                 if not rel_path_str_match.startswith(source_dir_str + "/") and rel_path_str_match != source_dir_str:
                     # Path is not under this gitignore's scope
                     return False
-                
+
                 # Make path relative to the gitignore's directory
                 if rel_path_str_match.startswith(source_dir_str + "/"):
                     scoped_path_str = rel_path_str_match[len(source_dir_str) + 1:]
@@ -570,7 +570,7 @@ class GitignoreManager:
         """
         if pattern.source_depth <= 0:
             return None
-        
+
         try:
             source_dir = pattern.source_path.parent
             rel_source_dir = source_dir.relative_to(self._root_path)
@@ -645,16 +645,16 @@ class GitignoreManager:
                 spec = pathspec.PathSpec.from_lines(
                     pathspec.patterns.GitWildMatchPattern, [pattern_str]
                 )
-                
+
                 # Match against basename
                 if spec.match_file(path_parts[-1]):
                     return True
-                
+
                 # Also check if any directory component matches
                 for part in path_parts[:-1]:
                     if spec.match_file(part):
                         return True
-                
+
                 return False
         except Exception:
             return False

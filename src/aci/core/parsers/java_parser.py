@@ -5,10 +5,10 @@ Extracts classes and methods from Java code using Tree-sitter.
 Includes Javadoc extraction.
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
-from aci.core.parsers.base import ASTNode, LanguageParser
 from aci.core.comment_extractor import extract_javadoc
+from aci.core.parsers.base import ASTNode, LanguageParser
 
 
 class JavaParser(LanguageParser):
@@ -22,9 +22,9 @@ class JavaParser(LanguageParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_java"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
         """Extract classes and methods from Java code."""
-        nodes: List[ASTNode] = []
+        nodes: list[ASTNode] = []
         self._traverse(root_node, content, nodes, parent_class=None, root=root_node)
         return nodes
 
@@ -32,8 +32,8 @@ class JavaParser(LanguageParser):
         self,
         node: Any,
         content: str,
-        nodes: List[ASTNode],
-        parent_class: Optional[str],
+        nodes: list[ASTNode],
+        parent_class: str | None,
         root: Any,
     ) -> None:
         """Recursively traverse Java AST and extract nodes."""
@@ -62,7 +62,7 @@ class JavaParser(LanguageParser):
         for child in node.children:
             self._traverse(child, content, nodes, parent_class, root)
 
-    def _extract_class(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_class(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a Java class/interface/enum/record declaration."""
         name = None
         for child in node.children:
@@ -88,8 +88,8 @@ class JavaParser(LanguageParser):
         )
 
     def _extract_method(
-        self, node: Any, content: str, parent_class: Optional[str], root: Any
-    ) -> Optional[ASTNode]:
+        self, node: Any, content: str, parent_class: str | None, root: Any
+    ) -> ASTNode | None:
         """Extract a Java method or constructor declaration."""
         name = None
         for child in node.children:

@@ -68,7 +68,7 @@ class TestSmartChunkSplitter:
 
     def test_context_prefix_for_methods(self, splitter, tokenizer):
         """Test that methods get class context prefix in continuation chunks."""
-        lines = ["        result += {}".format(i) for i in range(30)]
+        lines = [f"        result += {i}" for i in range(30)]
         content = (
             """def calculate(self, a, b):
     result = 0
@@ -130,7 +130,7 @@ class TestSmartChunkSplitter:
 
     def test_partial_metadata(self, splitter, tokenizer):
         """Test that split chunks have correct partial metadata."""
-        lines = ["    line{}".format(i) for i in range(50)]
+        lines = [f"    line{i}" for i in range(50)]
         content = "def big_func():\n" + "\n".join(lines)
 
         node = self._create_ast_node(content, name="big_func")
@@ -219,7 +219,7 @@ class TestChunkerWithSmartSplitter:
 
     def test_oversized_function_uses_smart_splitter(self, tokenizer, parser):
         """Test that oversized functions are split using SmartChunkSplitter."""
-        lines = ["    x{} = {}".format(i, i) for i in range(100)]
+        lines = [f"    x{i} = {i}" for i in range(100)]
         content = "def big_function():\n" + "\n".join(lines) + "\n    return sum([x0])"
 
         file = self._create_scanned_file(content)
@@ -237,7 +237,7 @@ class TestChunkerWithSmartSplitter:
 
     def test_oversized_method_preserves_class_context(self, tokenizer, parser):
         """Test that oversized methods preserve class context."""
-        lines = ["        self.x{} = {}".format(i, i) for i in range(100)]
+        lines = [f"        self.x{i} = {i}" for i in range(100)]
         content = """class BigClass:
     def big_method(self):
 """ + "\n".join(lines)

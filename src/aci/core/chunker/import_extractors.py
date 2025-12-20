@@ -5,7 +5,6 @@ Provides language-specific import statement extraction and a registry
 for managing extractors.
 """
 
-from typing import List
 
 from .interfaces import ImportExtractorInterface
 
@@ -13,7 +12,7 @@ from .interfaces import ImportExtractorInterface
 class PythonImportExtractor(ImportExtractorInterface):
     """Import extractor for Python."""
 
-    def extract(self, content: str) -> List[str]:
+    def extract(self, content: str) -> list[str]:
         imports = []
         for line in content.split("\n"):
             stripped = line.strip()
@@ -35,7 +34,7 @@ class PythonImportExtractor(ImportExtractorInterface):
 class JavaScriptImportExtractor(ImportExtractorInterface):
     """Import extractor for JavaScript/TypeScript."""
 
-    def extract(self, content: str) -> List[str]:
+    def extract(self, content: str) -> list[str]:
         imports = []
         for line in content.split("\n"):
             stripped = line.strip()
@@ -54,7 +53,7 @@ class JavaScriptImportExtractor(ImportExtractorInterface):
 class GoImportExtractor(ImportExtractorInterface):
     """Import extractor for Go."""
 
-    def extract(self, content: str) -> List[str]:
+    def extract(self, content: str) -> list[str]:
         imports = []
         in_import_block = False
         for line in content.split("\n"):
@@ -100,7 +99,7 @@ class GoImportExtractor(ImportExtractorInterface):
 class NullImportExtractor(ImportExtractorInterface):
     """Null extractor for unsupported languages."""
 
-    def extract(self, content: str) -> List[str]:
+    def extract(self, content: str) -> list[str]:
         return []
 
 
@@ -144,7 +143,7 @@ class ImportExtractorRegistry:
         """
         return self._extractors.get(language, self._null_extractor)
 
-    def extract_imports(self, content: str, language: str) -> List[str]:
+    def extract_imports(self, content: str, language: str) -> list[str]:
         """
         Extract imports using the appropriate extractor.
 

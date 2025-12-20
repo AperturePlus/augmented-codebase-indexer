@@ -13,7 +13,6 @@ from hypothesis import strategies as st
 
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 
-
 # Strategies for generating test data
 file_path_strategy = st.text(
     alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="/._-"),

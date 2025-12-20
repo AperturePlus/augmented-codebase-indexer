@@ -13,7 +13,6 @@ from hypothesis import strategies as st
 
 from aci.cli.history import HistoryManager
 
-
 # Strategy for valid command strings (non-empty, no newlines)
 # Commands should be printable ASCII without newlines
 command_string = st.text(

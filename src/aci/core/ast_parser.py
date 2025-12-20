@@ -9,14 +9,14 @@ Uses the Strategy pattern to delegate language-specific parsing to dedicated par
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 from aci.core.parsers.base import ASTNode, LanguageParser
-from aci.core.parsers.python_parser import PythonParser
-from aci.core.parsers.javascript_parser import JavaScriptParser
+from aci.core.parsers.cpp_parser import CParser, CppParser
 from aci.core.parsers.go_parser import GoParser
 from aci.core.parsers.java_parser import JavaParser
-from aci.core.parsers.cpp_parser import CParser, CppParser
+from aci.core.parsers.javascript_parser import JavaScriptParser
+from aci.core.parsers.python_parser import PythonParser
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ASTParserInterface(ABC):
     """Abstract interface for AST parsing."""
 
     @abstractmethod
-    def parse(self, content: str, language: str) -> List[ASTNode]:
+    def parse(self, content: str, language: str) -> list[ASTNode]:
         """Parse code content and return AST nodes."""
         pass
 
@@ -53,19 +53,19 @@ SUPPORTED_LANGUAGES = {
 class TreeSitterParser(ASTParserInterface):
     """
     Tree-sitter based AST parser implementation.
-    
+
     Uses the Strategy pattern to delegate language-specific parsing
     to dedicated LanguageParser implementations.
     """
 
     def __init__(self):
         """Initialize the parser with language strategies."""
-        self._parsers: Dict[str, Any] = {}
-        self._languages: Dict[str, Any] = {}
+        self._parsers: dict[str, Any] = {}
+        self._languages: dict[str, Any] = {}
         self._initialized_languages: set = set()
-        
+
         # Register language-specific parsers (Strategy pattern)
-        self._language_parsers: Dict[str, LanguageParser] = {
+        self._language_parsers: dict[str, LanguageParser] = {
             "python": PythonParser(),
             "javascript": JavaScriptParser(),
             "typescript": JavaScriptParser(),  # Uses same parser
@@ -126,24 +126,24 @@ class TreeSitterParser(ASTParserInterface):
             if isinstance(lang_obj, tree_sitter.Language):
                 return lang_obj
             return tree_sitter.Language(lang_obj)
-        
+
         logger.error(f"Unknown language module: {module_name}")
         return None
 
     def supports_language(self, language: str) -> bool:
         """
         Check if the parser fully supports the specified language.
-        
+
         Returns True only if both:
         1. Tree-sitter grammar is available for the language
         2. A language-specific parser implementation exists
         """
         return language in SUPPORTED_LANGUAGES and language in self._language_parsers
 
-    def parse(self, content: str, language: str) -> List[ASTNode]:
+    def parse(self, content: str, language: str) -> list[ASTNode]:
         """
         Parse code content and return AST nodes.
-        
+
         Delegates to language-specific parsers using the Strategy pattern.
         """
         if not self._ensure_language_loaded(language):
@@ -155,12 +155,12 @@ class TreeSitterParser(ASTParserInterface):
 
         try:
             tree = parser.parse(content.encode("utf-8"))
-            
+
             # Use language-specific parser if available
             lang_parser = self._language_parsers.get(language)
             if lang_parser:
                 return lang_parser.extract_nodes(tree.root_node, content)
-            
+
             # Language has tree-sitter support but no dedicated parser
             logger.info(
                 f"Language '{language}' has tree-sitter grammar available but no "
@@ -168,7 +168,7 @@ class TreeSitterParser(ASTParserInterface):
                 f"in src/aci/core/parsers/{language}_parser.py"
             )
             return []
-            
+
         except Exception as e:
             logger.error(f"Failed to parse content for '{language}': {e}")
             # Re-raise in debug mode for better debugging
@@ -177,7 +177,7 @@ class TreeSitterParser(ASTParserInterface):
             return []
 
 
-def check_tree_sitter_setup() -> Dict[str, bool]:
+def check_tree_sitter_setup() -> dict[str, bool]:
     """Check Tree-sitter environment and language pack loading status."""
     results = {}
     parser = TreeSitterParser()

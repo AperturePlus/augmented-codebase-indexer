@@ -104,7 +104,7 @@ def create_search_handler(services: "ServicesContainer") -> callable:
         query = " ".join(command.args)
         limit = command.kwargs.get("limit", command.kwargs.get("n"))
         artifact_type = command.kwargs.get("type", command.kwargs.get("t"))
-        
+
         # Parse artifact types (can be comma-separated or multiple --type flags)
         artifact_types = None
         if artifact_type:

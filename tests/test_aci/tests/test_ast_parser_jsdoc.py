@@ -5,7 +5,6 @@ Tests JavaScript/TypeScript docstring extraction functionality.
 Requirements: 1.1, 1.2, 1.3, 1.4
 """
 
-import pytest
 
 from aci.core.ast_parser import TreeSitterParser
 
@@ -24,7 +23,7 @@ function add(a, b) {
     return a + b;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "add"
         assert nodes[0].node_type == "function"
@@ -43,7 +42,7 @@ function authenticate(username, password) {
     return login(username, password);
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "authenticate"
         assert nodes[0].docstring is not None
@@ -63,7 +62,7 @@ class User {
     }
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         # Should have class and constructor method
         class_nodes = [n for n in nodes if n.node_type == "class"]
         assert len(class_nodes) == 1
@@ -85,10 +84,10 @@ class User {
     }
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         method_nodes = [n for n in nodes if n.node_type == "method"]
         assert len(method_nodes) >= 1
-        
+
         multiply = next((n for n in method_nodes if n.name == "multiply"), None)
         assert multiply is not None
         assert multiply.docstring is not None
@@ -103,7 +102,7 @@ class User {
  */
 const square = (x) => x * x;'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "square"
         assert nodes[0].docstring is not None
@@ -115,7 +114,7 @@ const square = (x) => x * x;'''
     return 42;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "noDoc"
         assert nodes[0].docstring is None
@@ -131,7 +130,7 @@ function formatDate(date) {
     return date.toISOString();
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "@description" in nodes[0].docstring
@@ -150,7 +149,7 @@ function divide(a, b) {
     return a / b;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "@throws" in nodes[0].docstring
@@ -168,7 +167,7 @@ function greet(name) {
     return `Hello, ${name}!`;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "@example" in nodes[0].docstring
@@ -186,7 +185,7 @@ async function fetchUser(userId) {
     return await api.get("/users/" + userId);
 }'''
         nodes = self.parser.parse(code, "typescript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "fetchUser"
         assert nodes[0].docstring is not None
@@ -208,16 +207,16 @@ function subtract(a, b) {
     return a - b;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 2
-        
+
         add_node = next((n for n in nodes if n.name == "add"), None)
         sub_node = next((n for n in nodes if n.name == "subtract"), None)
-        
+
         assert add_node is not None
         assert add_node.docstring is not None
         assert "Adds numbers" in add_node.docstring
-        
+
         assert sub_node is not None
         assert sub_node.docstring is not None
         assert "Subtracts numbers" in sub_node.docstring
@@ -233,7 +232,7 @@ function handleRequest(request) {
     return process(request);
 }"""
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "Handles user request" in nodes[0].docstring
@@ -250,7 +249,7 @@ function blockComment() {
     return 2;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 2
         for node in nodes:
             assert node.docstring is None
@@ -275,7 +274,7 @@ export function add(a, b) {
     return a + b;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "add"
         assert nodes[0].docstring is not None
@@ -291,7 +290,7 @@ export default function main() {
     console.log("Hello");
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "main"
         assert nodes[0].docstring is not None
@@ -308,7 +307,7 @@ export async function fetchData(url) {
     return await fetch(url);
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "fetchData"
         assert nodes[0].docstring is not None
@@ -330,7 +329,7 @@ export class UserService {
     }
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         class_nodes = [n for n in nodes if n.node_type == "class"]
         assert len(class_nodes) == 1
         assert class_nodes[0].name == "UserService"
@@ -346,7 +345,7 @@ export class UserService {
  */
 export const square = (x) => x * x;'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "square"
         assert nodes[0].docstring is not None
@@ -370,7 +369,7 @@ function separated() {
     return 1;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "separated"
         # Should NOT have docstring due to blank line
@@ -390,7 +389,7 @@ function add(a, b) {
     return a + b;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].name == "add"
         assert nodes[0].docstring is not None
@@ -410,7 +409,7 @@ function foo() {
     return 1;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None
         assert "Second comment" in nodes[0].docstring
@@ -423,7 +422,7 @@ function empty() {
     return 1;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         # Empty JSDoc should still be extracted
         assert nodes[0].docstring is not None
@@ -437,6 +436,6 @@ function whitespace() {
     return 1;
 }'''
         nodes = self.parser.parse(code, "javascript")
-        
+
         assert len(nodes) == 1
         assert nodes[0].docstring is not None

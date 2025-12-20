@@ -5,10 +5,10 @@ Extracts functions, structs, and methods from Go code using Tree-sitter.
 Includes Go doc comment extraction.
 """
 
-from typing import Any, List, Optional
+from typing import Any
 
-from aci.core.parsers.base import LanguageParser, ASTNode
 from aci.core.comment_extractor import extract_go_doc
+from aci.core.parsers.base import ASTNode, LanguageParser
 
 
 class GoParser(LanguageParser):
@@ -22,13 +22,13 @@ class GoParser(LanguageParser):
     def tree_sitter_module(self) -> str:
         return "tree_sitter_go"
 
-    def extract_nodes(self, root_node: Any, content: str) -> List[ASTNode]:
+    def extract_nodes(self, root_node: Any, content: str) -> list[ASTNode]:
         """Extract functions, structs, and methods from Go code."""
         nodes = []
         self._traverse(root_node, content, nodes, root=root_node)
         return nodes
 
-    def _traverse(self, node: Any, content: str, nodes: List[ASTNode], root: Any) -> None:
+    def _traverse(self, node: Any, content: str, nodes: list[ASTNode], root: Any) -> None:
         """Recursively traverse Go AST and extract nodes."""
         if node.type == "function_declaration":
             ast_node = self._extract_function(node, content, root)
@@ -51,7 +51,7 @@ class GoParser(LanguageParser):
         for child in node.children:
             self._traverse(child, content, nodes, root)
 
-    def _extract_function(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_function(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a Go function declaration."""
         name = None
         for child in node.children:
@@ -76,7 +76,7 @@ class GoParser(LanguageParser):
             docstring=docstring,
         )
 
-    def _extract_method(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_method(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a Go method declaration (function with receiver)."""
         name = None
         receiver_type = None
@@ -106,7 +106,7 @@ class GoParser(LanguageParser):
             docstring=docstring,
         )
 
-    def _extract_receiver_type(self, param_list: Any, content: str) -> Optional[str]:
+    def _extract_receiver_type(self, param_list: Any, content: str) -> str | None:
         """Extract the receiver type from a Go method's parameter list."""
         for child in param_list.children:
             if child.type == "parameter_declaration":
@@ -119,7 +119,7 @@ class GoParser(LanguageParser):
                                 return self.get_node_content(ptr_child, content)
         return None
 
-    def _extract_struct(self, node: Any, content: str, root: Any) -> Optional[ASTNode]:
+    def _extract_struct(self, node: Any, content: str, root: Any) -> ASTNode | None:
         """Extract a Go struct type declaration."""
         name = None
         is_struct = False

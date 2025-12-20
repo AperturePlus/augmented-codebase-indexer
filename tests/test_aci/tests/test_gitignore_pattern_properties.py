@@ -10,8 +10,7 @@ from pathlib import Path
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from aci.core.gitignore_manager import GitignoreManager, GitignorePattern
-
+from aci.core.gitignore_manager import GitignoreManager
 
 # =============================================================================
 # Strategies for generating test data
@@ -503,7 +502,7 @@ WINDOWS_RESERVED_NAMES = frozenset({
 # and no Windows reserved device names)
 safe_dir_name = simple_pattern_name.filter(
     lambda s: (
-        not s.endswith(".") 
+        not s.endswith(".")
         and not s.endswith(" ")
         and s.upper() not in WINDOWS_RESERVED_NAMES
     )
@@ -627,11 +626,11 @@ def gitignore_precedence_strategy(draw):
     subdir_name = draw(safe_dir_name)
     pattern_name = draw(simple_pattern_name)
     assume(subdir_name != pattern_name)
-    
+
     # Decide whether root and nested gitignore exclude or include the pattern
     root_excludes = draw(st.booleans())
     nested_excludes = draw(st.booleans())
-    
+
     return subdir_name, pattern_name, root_excludes, nested_excludes
 
 
@@ -701,7 +700,7 @@ def test_gitignore_hierarchy_loading(pattern_name):
         subdir1 = tmpdir_path / "subdir1"
         subdir2 = tmpdir_path / "subdir2"
         nested = subdir1 / "nested"
-        
+
         subdir1.mkdir()
         subdir2.mkdir()
         nested.mkdir()
@@ -724,15 +723,15 @@ def test_gitignore_hierarchy_loading(pattern_name):
         # Verify patterns are properly scoped
         # Root pattern should match at root
         assert manager.matches(Path(f"root_{pattern_name}"), is_dir=False)
-        
+
         # Subdir1 pattern should only match in subdir1
         assert manager.matches(Path("subdir1") / f"sub1_{pattern_name}", is_dir=False)
         assert not manager.matches(Path(f"sub1_{pattern_name}"), is_dir=False)
-        
+
         # Subdir2 pattern should only match in subdir2
         assert manager.matches(Path("subdir2") / f"sub2_{pattern_name}", is_dir=False)
         assert not manager.matches(Path(f"sub2_{pattern_name}"), is_dir=False)
-        
+
         # Nested pattern should only match in nested
         assert manager.matches(Path("subdir1") / "nested" / f"nested_{pattern_name}", is_dir=False)
         assert not manager.matches(Path("subdir1") / f"nested_{pattern_name}", is_dir=False)

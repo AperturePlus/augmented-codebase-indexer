@@ -8,7 +8,6 @@ replacing the Service Locator pattern with explicit dependency injection.
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
 from aci.core.config import ACIConfig
 from aci.infrastructure.embedding import EmbeddingClientInterface
@@ -45,8 +44,8 @@ class MCPContext:
     indexing_lock: asyncio.Lock
     indexing_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     # These are stored for cleanup purposes only
-    reranker: Optional[RerankerInterface] = None
-    embedding_client: Optional[EmbeddingClientInterface] = None
+    reranker: RerankerInterface | None = None
+    embedding_client: EmbeddingClientInterface | None = None
 
 
 def create_mcp_context() -> MCPContext:
@@ -104,7 +103,7 @@ def create_mcp_context() -> MCPContext:
     )
 
 
-async def cleanup_context(ctx: Optional[MCPContext]) -> None:
+async def cleanup_context(ctx: MCPContext | None) -> None:
     """
     Clean up MCPContext and close all service connections.
 

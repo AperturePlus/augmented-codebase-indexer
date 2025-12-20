@@ -5,6 +5,8 @@ Provides command-line interface for indexing and searching codebases.
 """
 
 import asyncio
+import signal
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -30,9 +32,12 @@ from aci.infrastructure.codebase_registry import (
 )
 from aci.services import (
     IndexingService,
+    PathValidationError,
     SearchMode,
     SearchService,
     ServicesContainer,
+    WatchService,
+    WatchServiceError,
     create_services,
     resolve_repository,
 )
@@ -73,7 +78,7 @@ def get_services():
 @app.command()
 def index(
     path: Path = typer.Argument(..., help="Directory to index"),
-    workers: Optional[int] = typer.Option(
+    workers: int | None = typer.Option(
         None, "--workers", "-w", help="Number of parallel workers"
     ),
 ):
@@ -138,7 +143,7 @@ def index(
         summary.add_row("Total Files:", str(result.total_files))
         summary.add_row("Total Chunks:", str(result.total_chunks))
         summary.add_row("Duration:", f"{result.duration_seconds:.2f}s")
-        
+
         if result.failed_files:
             summary.add_row("Failed Files:", f"[red]{len(result.failed_files)}[/red]")
 
@@ -166,27 +171,27 @@ def index(
 @app.command()
 def search(
     query: str = typer.Argument(..., help="Search query"),
-    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Number of results"),
-    file_filter: Optional[str] = typer.Option(
+    limit: int | None = typer.Option(None, "--limit", "-n", help="Number of results"),
+    file_filter: str | None = typer.Option(
         None, "--filter", "-f", help="File path filter (glob)"
     ),
-    path: Optional[Path] = typer.Option(
+    path: Path | None = typer.Option(
         None, "--path", "-p", help="Target codebase path to search"
     ),
-    mode: Optional[str] = typer.Option(
+    mode: str | None = typer.Option(
         None,
         "--mode",
         "-m",
         help="Search mode: hybrid, vector, grep, or summary (default: hybrid)",
     ),
-    rerank: Optional[bool] = typer.Option(
+    rerank: bool | None = typer.Option(
         None, "--rerank/--no-rerank", help="Enable/disable reranking"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full chunk content"),
     snippet_lines: int = typer.Option(
         3, "--snippet-lines", help="Number of lines to display when not verbose"
     ),
-    artifact_type: Optional[list[str]] = typer.Option(
+    artifact_type: list[str] | None = typer.Option(
         None,
         "--type",
         "-t",
@@ -287,7 +292,7 @@ def search(
             # Highlight code syntax
             language = result.metadata.get("language", "text")
             # Mapping basic names to rich syntax lexers if needed, usually auto-detected
-            
+
             if verbose:
                 code_content = result.content
             else:
@@ -423,7 +428,7 @@ def reset():
         repos = metadata_store.get_repositories()
         deleted_collections = []
         failed_collections = []
-        
+
         # Delete each repository's collection
         for repo in repos:
             collection_name = repo.get("collection_name")
@@ -434,7 +439,7 @@ def reset():
                         deleted_collections.append(collection_name)
                 except Exception as e:
                     failed_collections.append((collection_name, str(e)))
-        
+
         # Also delete the default collection if it exists and wasn't already deleted
         default_collection = cfg.vector_store.collection_name
         if default_collection not in deleted_collections:
@@ -444,12 +449,12 @@ def reset():
                     deleted_collections.append(default_collection)
             except Exception as e:
                 failed_collections.append((default_collection, str(e)))
-        
+
         if deleted_collections:
             console.print(f"  [green]✓[/green] Deleted {len(deleted_collections)} collection(s).")
         else:
             console.print("  [yellow]![/yellow] No collections found to delete.")
-        
+
         if failed_collections:
             console.print(f"  [yellow]![/yellow] Failed to delete {len(failed_collections)} collection(s):")
             for name, error in failed_collections:
@@ -464,7 +469,7 @@ def reset():
         # Clear metadata
         metadata_store.clear_all()
         console.print("  [green]✓[/green] Metadata store cleared.")
-        
+
         console.print("[bold green]Reset complete.[/bold green]")
 
     except Exception as e:
@@ -565,26 +570,26 @@ def status(
         grid = Table.grid(padding=1)
         grid.add_column(style="bold")
         grid.add_column()
-        
+
         grid.add_row("Total Files:", str(stats["total_files"]))
         grid.add_row("Total Chunks:", str(stats["total_chunks"]))
         grid.add_row("Total Lines:", str(stats["total_lines"]))
-        
+
         console.print(Panel(grid, title="Index Statistics", border_style="blue", expand=False))
 
         if stats["languages"]:
             lang_table = Table(title="Languages", box=None, show_header=True)
             lang_table.add_column("Language", style="cyan")
             lang_table.add_column("Files", justify="right")
-            
+
             for lang, count in stats["languages"].items():
                 lang_table.add_row(lang, str(count))
-            
+
             console.print(Panel(lang_table, border_style="blue", expand=False))
 
         # Health checks (Req 8.3)
         console.print("\n[bold]System Health:[/bold]")
-        
+
         # Check vector store connectivity
         try:
             vector_stats = asyncio.run(vector_store.get_stats())
@@ -600,7 +605,7 @@ def status(
         config_summary = f"""File Extensions: {', '.join(cfg.indexing.file_extensions)}
 Max Chunk Tokens: {cfg.indexing.max_chunk_tokens}
 Rerank Enabled: {cfg.search.use_rerank}"""
-        
+
         console.print(Panel(config_summary, title="Configuration", border_style="dim", expand=False))
 
     except Exception as e:
@@ -631,10 +636,20 @@ def _find_available_port(host: str, start_port: int, max_attempts: int = 10) -> 
 
 @app.command()
 def serve(
-    host: Optional[str] = typer.Option(None, "--host", help="HTTP host (default from ACI_SERVER_HOST or 0.0.0.0)"),
-    port: Optional[int] = typer.Option(None, "--port", "-p", help="HTTP port (default from ACI_SERVER_PORT or 8000)"),
+    host: str | None = typer.Option(
+        None, "--host", help="HTTP host (default from ACI_SERVER_HOST or 0.0.0.0)"
+    ),
+    port: int | None = typer.Option(
+        None, "--port", "-p", help="HTTP port (default from ACI_SERVER_PORT or 8000)"
+    ),
+    watch: Path | None = typer.Option(
+        None, "--watch", "-w", help="Path to watch for file changes (auto-update index)"
+    ),
+    watch_debounce: int = typer.Option(
+        2000, "--watch-debounce", help="Debounce delay in milliseconds for file watching"
+    ),
 ):
-    """Start the HTTP API server."""
+    """Start the HTTP API server with optional file watching."""
     import uvicorn
 
     try:
@@ -651,18 +666,33 @@ def serve(
         if actual_port != requested_port:
             console.print(f"[yellow]Port {requested_port} is in use, using port {actual_port}[/yellow]")
 
-        app = create_app()
+        # Validate watch path if provided
+        watch_path = None
+        if watch is not None:
+            validation = validate_indexable_path(watch)
+            if not validation.valid:
+                console.print(f"[bold red]Error:[/bold red] {validation.error_message}")
+                raise typer.Exit(1)
+            watch_path = watch.resolve()
+            console.print(
+                f"[bold blue]File watching enabled for:[/bold blue] {watch_path}"
+            )
+
+        http_app = create_app(watch_path=watch_path, watch_debounce_ms=watch_debounce)
         console.print(f"[bold green]Starting API server at http://{actual_host}:{actual_port}[/bold green]")
         uvicorn.run(
-            app,
+            http_app,
             host=actual_host,
             port=actual_port,
             reload=False,
             log_level="info",
         )
     except ImportError:
-         console.print("[bold red]Error:[/bold red] Could not import create_app. Ensure aci package is installed correctly.")
-         raise typer.Exit(1)
+        console.print(
+            "[bold red]Error:[/bold red] Could not import create_app. "
+            "Ensure aci package is installed correctly."
+        )
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
@@ -685,6 +715,177 @@ def shell():
 
     except KeyboardInterrupt:
         console.print("\n[cyan]Goodbye![/cyan]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def watch(
+    path: Path = typer.Argument(..., help="Directory path to watch"),
+    debounce: int = typer.Option(
+        2000, "--debounce", "-d", help="Debounce delay in milliseconds"
+    ),
+    ignore: list[str] | None = typer.Option(
+        None, "--ignore", "-i", help="Additional ignore patterns"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose logging"
+    ),
+):
+    """Watch a directory for changes and auto-update the index."""
+    from aci.core.watch_config import WatchConfig
+    from aci.infrastructure.file_watcher import FileWatcher
+
+    # Validate path before proceeding
+    validation = validate_indexable_path(path)
+    if not validation.valid:
+        console.print(f"[bold red]Error:[/bold red] {validation.error_message}")
+        raise typer.Exit(1)
+
+    resolved_path = path.resolve()
+
+    try:
+        (
+            cfg,
+            embedding_client,
+            vector_store,
+            metadata_store,
+            file_scanner,
+            chunker,
+            reranker,
+        ) = get_services()
+
+        # Create watch configuration
+        watch_config = WatchConfig(
+            watch_path=resolved_path,
+            debounce_ms=debounce,
+            ignore_patterns=list(ignore) if ignore else [],
+            verbose=verbose,
+        )
+
+        # Create metrics collector for observability
+        from aci.services.metrics_collector import MetricsCollector
+        metrics_collector = MetricsCollector()
+
+        # Create indexing service
+        indexing_service = IndexingService(
+            embedding_client=embedding_client,
+            vector_store=vector_store,
+            metadata_store=metadata_store,
+            file_scanner=file_scanner,
+            chunker=chunker,
+            max_workers=cfg.indexing.max_workers,
+            batch_size=cfg.embedding.batch_size,
+            metrics_collector=metrics_collector,
+        )
+
+        # Create file watcher with config-driven extensions and ignore patterns
+        combined_ignore_patterns = list(cfg.indexing.ignore_patterns)
+        if ignore:
+            combined_ignore_patterns.extend(ignore)
+
+        file_watcher = FileWatcher(
+            extensions=set(cfg.indexing.file_extensions),
+            ignore_patterns=combined_ignore_patterns,
+        )
+
+        # Create watch service with metrics collector
+        watch_service = WatchService(
+            indexing_service=indexing_service,
+            file_watcher=file_watcher,
+            config=watch_config,
+            metrics_collector=metrics_collector,
+        )
+
+        # Set up shutdown event for graceful termination
+        shutdown_requested = False
+
+        def handle_shutdown(signum, frame):
+            nonlocal shutdown_requested
+            if shutdown_requested:
+                # Force exit on second signal
+                console.print("\n[bold red]Force exit[/bold red]")
+                sys.exit(1)
+            shutdown_requested = True
+            console.print("\n[yellow]Shutting down gracefully...[/yellow]")
+
+        # Register signal handlers
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
+
+        # Display watch status
+        console.print(
+            Panel(
+                f"[bold]Path:[/bold] {resolved_path}\n"
+                f"[bold]Debounce:[/bold] {debounce}ms\n"
+                f"[bold]Verbose:[/bold] {verbose}\n"
+                f"[bold]Ignore patterns:[/bold] {len(combined_ignore_patterns)} patterns",
+                title="[bold green]Watch Configuration[/bold green]",
+                border_style="green",
+                expand=False,
+            )
+        )
+
+        console.print(
+            f"\n[bold blue]Watching[/bold blue] {resolved_path} for changes..."
+        )
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Run the watch service
+        async def run_watch():
+            try:
+                await watch_service.start()
+
+                # Keep running until shutdown is requested
+                while not shutdown_requested:
+                    await asyncio.sleep(1)
+
+                    # Periodically display stats if verbose
+                    if verbose:
+                        stats = watch_service.get_stats()
+                        pending = watch_service.get_pending_count()
+                        if pending > 0:
+                            console.print(
+                                f"[dim]Events: {stats.events_received}, "
+                                f"Updates: {stats.updates_triggered}, "
+                                f"Pending: {pending}[/dim]"
+                            )
+
+            finally:
+                await watch_service.stop()
+
+        asyncio.run(run_watch())
+
+        # Display final statistics
+        stats = watch_service.get_stats()
+        summary = Table.grid(padding=1)
+        summary.add_column(style="bold")
+        summary.add_column()
+        summary.add_row("Events Received:", str(stats.events_received))
+        summary.add_row("Updates Triggered:", str(stats.updates_triggered))
+        summary.add_row("Errors:", str(stats.errors))
+        if stats.last_update_at:
+            summary.add_row("Last Update:", stats.last_update_at.strftime("%H:%M:%S"))
+            summary.add_row(
+                "Last Update Duration:", f"{stats.last_update_duration_ms:.0f}ms"
+            )
+
+        console.print(
+            Panel(
+                summary,
+                title="[bold green]Watch Session Complete[/bold green]",
+                border_style="green",
+                expand=False,
+            )
+        )
+
+    except PathValidationError as e:
+        console.print(f"[bold red]Path Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    except WatchServiceError as e:
+        console.print(f"[bold red]Watch Error:[/bold red] {e}")
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)

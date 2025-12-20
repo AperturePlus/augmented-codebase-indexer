@@ -5,12 +5,11 @@ Pure functions for deduplication, score normalization, and query parsing.
 """
 
 import fnmatch
-from typing import List, Optional, Tuple
 
 from aci.infrastructure.vector_store import SearchResult
 
 
-def is_near_duplicate(grep_result: SearchResult, vector_results: List[SearchResult]) -> bool:
+def is_near_duplicate(grep_result: SearchResult, vector_results: list[SearchResult]) -> bool:
     """
     Check if grep result overlaps with any vector chunk.
 
@@ -37,8 +36,8 @@ def is_near_duplicate(grep_result: SearchResult, vector_results: List[SearchResu
 
 
 def deduplicate_grep_results(
-    grep_results: List[SearchResult], vector_results: List[SearchResult]
-) -> List[SearchResult]:
+    grep_results: list[SearchResult], vector_results: list[SearchResult]
+) -> list[SearchResult]:
     """
     Filter grep results that overlap with vector chunks.
 
@@ -55,7 +54,7 @@ def deduplicate_grep_results(
 
 
 
-def deduplicate_by_location(results: List[SearchResult]) -> List[SearchResult]:
+def deduplicate_by_location(results: list[SearchResult]) -> list[SearchResult]:
     """
     Remove duplicate results based on file location.
 
@@ -82,9 +81,9 @@ def deduplicate_by_location(results: List[SearchResult]) -> List[SearchResult]:
 
 
 def normalize_scores(
-    grep_results: List[SearchResult],
-    vector_results: List[SearchResult],
-) -> Tuple[List[SearchResult], List[SearchResult]]:
+    grep_results: list[SearchResult],
+    vector_results: list[SearchResult],
+) -> tuple[list[SearchResult], list[SearchResult]]:
     """
     Normalize grep and vector scores to a comparable range.
 
@@ -129,7 +128,7 @@ def normalize_scores(
     return normalized_grep, vector_results
 
 
-def parse_query_modifiers(query: str) -> Tuple[str, Optional[str], List[str]]:
+def parse_query_modifiers(query: str) -> tuple[str, str | None, list[str]]:
     """
     Parse query string for modifiers like file filters and exclusions.
 
@@ -151,7 +150,7 @@ def parse_query_modifiers(query: str) -> Tuple[str, Optional[str], List[str]]:
         ("search query", "src/*.py", [])
     """
     file_filter = None
-    exclude_patterns: List[str] = []
+    exclude_patterns: list[str] = []
     clean_parts = []
 
     tokens = query.split()
@@ -171,8 +170,8 @@ def parse_query_modifiers(query: str) -> Tuple[str, Optional[str], List[str]]:
 
 
 def apply_exclusions(
-    results: List[SearchResult], exclude_patterns: List[str]
-) -> List[SearchResult]:
+    results: list[SearchResult], exclude_patterns: list[str]
+) -> list[SearchResult]:
     """
     Filter out results matching any exclusion pattern.
 

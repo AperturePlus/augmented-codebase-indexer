@@ -12,7 +12,6 @@ import asyncio
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Set
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
@@ -117,7 +116,7 @@ class TestIncrementalUpdateModifiedFile:
 
             # Get original chunks
             original_stats = run_async(vector_store.get_stats())
-            original_chunk_count = original_stats["total_vectors"]
+            original_stats["total_vectors"]
 
             # Modify the file
             test_file.write_text(modified_content, encoding="utf-8")
@@ -218,8 +217,7 @@ class TestIncrementalUpdateNewFile:
             create_test_file(temp_dir, "initial.py", initial_content)
 
             # Initial indexing
-            result1 = run_async(service.index_directory(temp_dir))
-            initial_files = result1.total_files
+            run_async(service.index_directory(temp_dir))
 
             stats_before = run_async(vector_store.get_stats())
             initial_chunks = stats_before["total_vectors"]
@@ -275,7 +273,7 @@ class TestMetadataStatisticsConsistency:
                 create_test_file(temp_dir, f"module_{i}.py", content)
 
             # Index directory
-            result = run_async(service.index_directory(temp_dir))
+            run_async(service.index_directory(temp_dir))
 
             # Get metadata stats
             metadata_stats = metadata_store.get_stats()
@@ -367,8 +365,8 @@ class TestParallelProcessingDeterminism:
             assert stats1["total_files"] == stats2["total_files"]
 
             # Extract chunk contents for comparison
-            chunks1_contents: Set[tuple] = set()
-            chunks2_contents: Set[tuple] = set()
+            chunks1_contents: set[tuple] = set()
+            chunks2_contents: set[tuple] = set()
 
             for chunk_id in vector_store1._payloads:
                 payload = vector_store1._payloads[chunk_id]

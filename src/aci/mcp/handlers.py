@@ -2,10 +2,10 @@
 import asyncio
 import json
 import os
-import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from mcp.types import TextContent
 
@@ -28,7 +28,7 @@ def _is_debug() -> bool:
 def _debug(msg: str):
     """Print debug message to stderr if in development mode."""
     if _is_debug():
-        print(f"[ACI-DEBUG] {msg}", file=sys.stderr, flush=True)
+        pass
 
 
 def _register(name: str):
@@ -329,7 +329,6 @@ async def _handle_update_index(arguments: dict, ctx: MCPContext) -> list[TextCon
     path = Path(path_str)
     _debug(f"Resolved path: {path.resolve()}")
 
-    cfg = ctx.config
     indexing_service = ctx.indexing_service
     metadata_store = ctx.metadata_store
     _debug("Services initialized")

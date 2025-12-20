@@ -8,8 +8,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from aci.cli.parser import ParsedCommand
-from aci.cli.router import ArgumentInfo, CommandInfo, CommandResult, CommandRouter
-
+from aci.cli.router import ArgumentInfo, CommandResult, CommandRouter
 
 # Known command names that will be registered
 KNOWN_COMMANDS = ["help", "exit", "quit", "q", "index", "search", "status", "update", "list", "reset", "?"]
