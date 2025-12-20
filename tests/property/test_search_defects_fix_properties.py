@@ -20,7 +20,7 @@ from aci.infrastructure.vector_store import SearchResult
 from aci.services.search_service import SearchService
 from aci.services.search_types import RerankerInterface, SearchMode
 from aci.services.search_utils import normalize_scores
-from tests.search_service_test_utils import (
+from tests.support.search_service_test_utils import (
     create_indexed_search_env,
     python_file_content,
     run_async,

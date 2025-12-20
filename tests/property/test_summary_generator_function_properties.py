@@ -4,7 +4,7 @@ from hypothesis import given, settings
 
 from aci.core.summary_artifact import ArtifactType
 from aci.core.summary_generator import DEFAULT_MAX_SUMMARY_TOKENS, SummaryGenerator
-from tests.summary_generator_strategies import file_path, function_ast_node
+from tests.support.summary_generator_strategies import file_path, function_ast_node
 
 
 @given(node=function_ast_node(), path=file_path)

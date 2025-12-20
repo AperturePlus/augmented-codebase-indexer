@@ -5,7 +5,7 @@ from hypothesis import assume, given, settings
 from aci.core.ast_parser import ASTNode, TreeSitterParser
 from aci.core.chunker import Chunker, SmartChunkSplitter
 from aci.core.tokenizer import get_default_tokenizer
-from tests.chunker_property_utils import (
+from tests.support.chunker_property_utils import (
     create_scanned_file,
     large_function_strategy,
     multi_line_text_strategy,

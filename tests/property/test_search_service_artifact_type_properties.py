@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 
 from aci.services.search_service import SearchService
 from aci.services.search_types import SearchMode
-from tests.search_service_test_utils import run_async
+from tests.support.search_service_test_utils import run_async
 
 
 class MockGrepSearcher:

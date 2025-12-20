@@ -6,7 +6,7 @@ from hypothesis import strategies as st
 from aci.core.ast_parser import TreeSitterParser
 from aci.core.chunker import Chunker
 from aci.core.tokenizer import get_default_tokenizer
-from tests.chunker_property_utils import (
+from tests.support.chunker_property_utils import (
     create_scanned_file,
     multi_line_text_strategy,
     python_function_strategy,

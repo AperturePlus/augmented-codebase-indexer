@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 
 from aci.core.chunker import CodeChunk
 from aci.services.indexing_service import IndexingError, IndexingService
-from tests.search_service_test_utils import run_async
+from tests.support.search_service_test_utils import run_async
 
 # =============================================================================
 # Test Helpers

@@ -3,7 +3,7 @@
 from hypothesis import given, settings
 
 from aci.core.summary_artifact import ArtifactType
-from tests.summary_generator_strategies import python_code_with_functions_and_classes
+from tests.support.summary_generator_strategies import python_code_with_functions_and_classes
 
 
 @given(code_data=python_code_with_functions_and_classes())

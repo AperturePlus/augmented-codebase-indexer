@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from tests.path_utils_strategies import WINDOWS_RESERVED
+from tests.support.path_utils_strategies import WINDOWS_RESERVED
 
 
 class TestREPLHistoryFallback:

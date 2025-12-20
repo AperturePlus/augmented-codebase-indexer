@@ -12,7 +12,7 @@ import pytest
 from aci.core.ast_parser import TreeSitterParser
 
 # Load fixtures
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "docstring_samples"
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "docstring_samples"
 
 
 def load_fixture(filename: str) -> dict:

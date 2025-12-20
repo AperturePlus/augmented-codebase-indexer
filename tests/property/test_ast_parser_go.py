@@ -18,7 +18,7 @@ from aci.core.ast_parser import TreeSitterParser
 # Fixtures path
 # =============================================================================
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 # =============================================================================

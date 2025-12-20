@@ -6,7 +6,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from aci.infrastructure.fakes import InMemoryVectorStore
-from tests.vector_store_strategies import (
+from tests.support.vector_store_strategies import (
     chunk_id_strategy,
     chunk_payload_strategy,
     file_path_strategy,

@@ -269,7 +269,7 @@ def main():
 
     def test_get_config_returns_chunker_config(self, tokenizer):
         """Test get_config returns ChunkerConfig with current settings."""
-        from aci.core.chunker import ChunkerConfig
+        from aci.core.chunker import Chunker, ChunkerConfig
 
         chunker = Chunker(
             tokenizer=tokenizer,

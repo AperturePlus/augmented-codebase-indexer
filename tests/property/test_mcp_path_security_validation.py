@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from hypothesis import given, settings
 
 from aci.core.path_utils import POSIX_SYSTEM_DIRS, WINDOWS_SYSTEM_DIRS, validate_indexable_path
-from tests.mcp_path_security_strategies import (
+from tests.support.mcp_path_security_strategies import (
     posix_system_paths,
     run_async,
     valid_directory_names,

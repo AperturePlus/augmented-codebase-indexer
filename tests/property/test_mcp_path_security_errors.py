@@ -8,7 +8,7 @@ from unittest.mock import patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from tests.mcp_path_security_strategies import run_async, valid_directory_names
+from tests.support.mcp_path_security_strategies import run_async, valid_directory_names
 
 
 def _create_mock_context():

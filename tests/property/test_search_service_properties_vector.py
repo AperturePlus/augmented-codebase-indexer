@@ -7,7 +7,7 @@ from pathlib import Path
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from tests.search_service_test_utils import (
+from tests.support.search_service_test_utils import (
     create_indexed_search_env,
     python_file_content,
     run_async,

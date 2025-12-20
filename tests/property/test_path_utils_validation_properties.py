@@ -13,7 +13,7 @@ from aci.core.path_utils import (
     is_system_directory,
     validate_indexable_path,
 )
-from tests.path_utils_strategies import (
+from tests.support.path_utils_strategies import (
     WINDOWS_RESERVED,
     non_existent_paths,
     posix_system_paths,
