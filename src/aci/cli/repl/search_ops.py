@@ -52,6 +52,12 @@ class SearchOperations:
         self,
         query: str,
         limit: str | None = None,
+        mode: str | None = None,
+        regex: str | None = None,
+        all_terms: str | None = None,
+        case_sensitive: str | None = None,
+        context_lines: str | None = None,
+        fuzzy_min_score: str | None = None,
         artifact_types: list[str] | None = None,
     ) -> None:
         """
@@ -63,10 +69,44 @@ class SearchOperations:
         Args:
             query: Search query string.
             limit: Optional result limit as string.
+            mode: Optional search mode as string.
+            regex: Optional boolean string for regex text search.
+            all_terms: Optional boolean string for all-terms text search.
+            case_sensitive: Optional boolean string for case sensitivity.
+            context_lines: Optional int string for context lines.
+            fuzzy_min_score: Optional float string for fuzzy threshold.
             artifact_types: Optional list of artifact types to filter by.
         """
         from aci.infrastructure import GrepSearcher
-        from aci.services import SearchService
+        from aci.services import SearchMode, SearchService, TextSearchOptions
+
+        def _parse_bool(value: str | None, default: bool = False) -> bool:
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            v = str(value).strip().lower()
+            if v in {"1", "true", "yes", "y", "on"}:
+                return True
+            if v in {"0", "false", "no", "n", "off"}:
+                return False
+            return default
+
+        def _parse_int(value: str | None, default: int) -> int:
+            if value is None:
+                return default
+            try:
+                return int(str(value).strip())
+            except ValueError:
+                return default
+
+        def _parse_float(value: str | None, default: float) -> float:
+            if value is None:
+                return default
+            try:
+                return float(str(value).strip())
+            except ValueError:
+                return default
 
         # Get the codebase path from context
         codebase_path = self.context.get_codebase()
@@ -81,6 +121,16 @@ class SearchOperations:
             return
 
         actual_limit = int(limit) if limit else self.services.config.search.default_limit
+
+        mode_value = (mode or "").strip().lower() if mode else None
+        valid_modes = {"hybrid", "vector", "grep", "fuzzy", "summary"}
+        if mode_value and mode_value not in valid_modes:
+            render_error(
+                f"Invalid mode '{mode}'. Valid modes: {', '.join(sorted(valid_modes))}",
+                self.console,
+            )
+            return
+        search_mode = SearchMode(mode_value) if mode_value else SearchMode.HYBRID
 
         try:
             # Get collection name for this codebase (pass explicitly to search, no mutation)
@@ -109,8 +159,16 @@ class SearchOperations:
                     query=query,
                     limit=actual_limit,
                     use_rerank=self.services.reranker is not None,
+                    search_mode=search_mode,
                     collection_name=collection_name,  # Pass explicitly, no state mutation
                     artifact_types=artifact_types,
+                    text_options=TextSearchOptions(
+                        context_lines=_parse_int(context_lines, 3),
+                        case_sensitive=_parse_bool(case_sensitive, False),
+                        regex=_parse_bool(regex, False),
+                        all_terms=_parse_bool(all_terms, False),
+                        fuzzy_min_score=_parse_float(fuzzy_min_score, 0.6),
+                    ),
                 )
                 if self._event_loop_manager:
                     results = self._event_loop_manager.run_async(search_coro)

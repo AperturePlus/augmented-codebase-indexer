@@ -20,7 +20,7 @@ from aci.services.reranker import (
     SimpleReranker,
 )
 from aci.services.search_service import SearchService
-from aci.services.search_types import RerankerInterface, SearchMode
+from aci.services.search_types import RerankerInterface, SearchMode, TextSearchOptions
 from aci.services.watch_service import (
     PathValidationError,
     WatchService,
@@ -40,6 +40,7 @@ __all__ = [
     "IndexingResult",
     "SearchService",
     "SearchMode",
+    "TextSearchOptions",
     "RerankerInterface",
     "OpenAICompatibleReranker",
     "SimpleReranker",

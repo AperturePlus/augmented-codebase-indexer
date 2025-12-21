@@ -60,7 +60,7 @@ def test_search_code_tool_has_mode_parameter():
 
     mode_schema = properties["mode"]
     assert "enum" in mode_schema, "mode parameter should have enum values"
-    assert set(mode_schema["enum"]) == {"hybrid", "vector", "grep"}
+    assert set(mode_schema["enum"]) == {"hybrid", "vector", "grep", "fuzzy"}
 
 
 def test_index_codebase_requires_path():

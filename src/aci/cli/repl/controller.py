@@ -313,6 +313,12 @@ class REPLController:
             self._search_ops.run_search(
                 data.get("query"),
                 data.get("limit"),
+                data.get("mode"),
+                data.get("regex"),
+                data.get("all_terms"),
+                data.get("case_sensitive"),
+                data.get("context_lines"),
+                data.get("fuzzy_min_score"),
                 data.get("artifact_types"),
             )
         elif command_name == "update":

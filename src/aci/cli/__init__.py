@@ -36,6 +36,7 @@ from aci.services import (
     SearchMode,
     SearchService,
     ServicesContainer,
+    TextSearchOptions,
     WatchService,
     WatchServiceError,
     create_services,
@@ -182,7 +183,24 @@ def search(
         None,
         "--mode",
         "-m",
-        help="Search mode: hybrid, vector, grep, or summary (default: hybrid)",
+        help="Search mode: hybrid, vector, grep, fuzzy, or summary (default: hybrid)",
+    ),
+    regex: bool = typer.Option(
+        False, "--regex", help="Use regex for grep search (mode=grep or hybrid)"
+    ),
+    all_terms: bool = typer.Option(
+        False,
+        "--all-terms",
+        help="Split query by whitespace and require all terms match (grep/regex)",
+    ),
+    case_sensitive: bool = typer.Option(
+        False, "--case-sensitive", help="Enable case-sensitive text search (grep/regex/fuzzy)"
+    ),
+    context_lines: int = typer.Option(
+        3, "--context-lines", help="Context lines before/after match for text search"
+    ),
+    fuzzy_min_score: float = typer.Option(
+        0.6, "--fuzzy-min-score", help="Minimum per-term fuzzy score threshold (mode=fuzzy)"
     ),
     rerank: bool | None = typer.Option(
         None, "--rerank/--no-rerank", help="Enable/disable reranking"
@@ -243,7 +261,7 @@ def search(
         )
 
         # Validate and parse search mode (default to HYBRID)
-        valid_modes = {"hybrid", "vector", "grep", "summary"}
+        valid_modes = {"hybrid", "vector", "grep", "fuzzy", "summary"}
         if mode is not None:
             mode_lower = mode.lower()
             if mode_lower not in valid_modes:
@@ -279,6 +297,13 @@ def search(
                     search_mode=search_mode,  # Pass search mode
                     collection_name=collection_name,  # Pass explicitly, no state mutation
                     artifact_types=artifact_types_param,
+                    text_options=TextSearchOptions(
+                        context_lines=context_lines,
+                        case_sensitive=case_sensitive,
+                        regex=regex,
+                        all_terms=all_terms,
+                        fuzzy_min_score=fuzzy_min_score,
+                    ),
                 )
             )
 

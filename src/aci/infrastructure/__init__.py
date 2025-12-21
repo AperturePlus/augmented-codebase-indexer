@@ -25,6 +25,7 @@ from aci.infrastructure.grep_searcher import (
     GrepSearcher,
     GrepSearcherError,
     GrepSearcherInterface,
+    TextSearchMode,
 )
 from aci.infrastructure.metadata_store import (
     IndexedFileInfo,
@@ -63,6 +64,7 @@ __all__ = [
     "GrepSearcherInterface",
     "GrepSearcher",
     "GrepSearcherError",
+    "TextSearchMode",
     # Metadata store
     "IndexMetadataStore",
     "IndexedFileInfo",

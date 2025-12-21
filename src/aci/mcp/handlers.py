@@ -13,7 +13,7 @@ from aci.core.path_utils import get_collection_name_for_path, validate_indexable
 from aci.infrastructure.codebase_registry import best_effort_update_registry
 from aci.mcp.context import MCPContext
 from aci.mcp.services import MAX_WORKERS
-from aci.services import SearchMode
+from aci.services import SearchMode, TextSearchOptions
 from aci.services.repository_resolver import resolve_repository
 
 # Handler type: takes arguments dict and MCPContext, returns list of TextContent
@@ -145,6 +145,11 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
     use_rerank = arguments.get("use_rerank")
     mode = arguments.get("mode")
     artifact_types = arguments.get("artifact_types")
+    regex = arguments.get("regex")
+    all_terms = arguments.get("all_terms")
+    case_sensitive = arguments.get("case_sensitive")
+    context_lines = arguments.get("context_lines")
+    fuzzy_min_score = arguments.get("fuzzy_min_score")
 
     cfg = ctx.config
     search_service = ctx.search_service
@@ -179,6 +184,8 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
             search_mode = SearchMode.VECTOR
         elif mode_lower == "grep":
             search_mode = SearchMode.GREP
+        elif mode_lower == "fuzzy":
+            search_mode = SearchMode.FUZZY
         elif mode_lower == "hybrid":
             search_mode = SearchMode.HYBRID
 
@@ -205,6 +212,13 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
         search_mode=search_mode,
         collection_name=collection_name,
         artifact_types=artifact_types,
+        text_options=TextSearchOptions(
+            context_lines=int(context_lines) if context_lines is not None else 3,
+            case_sensitive=bool(case_sensitive) if case_sensitive is not None else False,
+            regex=bool(regex) if regex is not None else False,
+            all_terms=bool(all_terms) if all_terms is not None else False,
+            fuzzy_min_score=float(fuzzy_min_score) if fuzzy_min_score is not None else 0.6,
+        ),
     )
 
     # Filter results to subdirectory if searching in a subdirectory

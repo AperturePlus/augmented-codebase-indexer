@@ -17,7 +17,13 @@ from aci.infrastructure.codebase_registry import best_effort_update_registry
 from aci.infrastructure.file_watcher import FileWatcher
 from aci.infrastructure.grep_searcher import GrepSearcher
 from aci.infrastructure.vector_store import SearchResult
-from aci.services import IndexingService, SearchMode, SearchService, WatchService
+from aci.services import (
+    IndexingService,
+    SearchMode,
+    SearchService,
+    TextSearchOptions,
+    WatchService,
+)
 from aci.services.container import create_services
 from aci.services.metrics_collector import MetricsCollector
 from aci.services.repository_resolver import resolve_repository
@@ -310,6 +316,11 @@ def create_app(
         file_filter: str | None = None,
         use_rerank: bool | None = None,
         mode: str | None = None,
+        regex: bool = False,
+        all_terms: bool = False,
+        case_sensitive: bool = False,
+        context_lines: int = 3,
+        fuzzy_min_score: float = 0.6,
         artifact_type: list[str] | None = Query(None),
     ):
         try:
@@ -330,6 +341,8 @@ def create_app(
                     search_mode = SearchMode.VECTOR
                 elif mode_lower == "grep":
                     search_mode = SearchMode.GREP
+                elif mode_lower == "fuzzy":
+                    search_mode = SearchMode.FUZZY
                 elif mode_lower == "hybrid":
                     search_mode = SearchMode.HYBRID
                 elif mode_lower == "summary":
@@ -355,6 +368,13 @@ def create_app(
                 search_mode=search_mode,
                 collection_name=collection_name,
                 artifact_types=artifact_type,
+                text_options=TextSearchOptions(
+                    context_lines=context_lines,
+                    case_sensitive=case_sensitive,
+                    regex=regex,
+                    all_terms=all_terms,
+                    fuzzy_min_score=fuzzy_min_score,
+                ),
             )
             return {"results": [_to_response_item(r) for r in results]}
         except HTTPException:

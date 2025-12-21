@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 from aci.services.search_types import SearchMode
 
 # Valid search modes as defined in SearchMode enum
-VALID_MODES = {"hybrid", "vector", "grep", "summary"}
+VALID_MODES = {"hybrid", "vector", "grep", "fuzzy", "summary"}
 
 
 class TestSearchModeAcceptance:
@@ -162,7 +162,7 @@ class TestCLIModeValidation:
 
         Test the mode validation logic used in CLI search command.
         """
-        valid_modes = {"hybrid", "vector", "grep", "summary"}
+        valid_modes = {"hybrid", "vector", "grep", "fuzzy", "summary"}
 
         # Test all valid modes
         for mode in valid_modes:
@@ -181,7 +181,7 @@ class TestCLIModeValidation:
 
         Test that CLI mode validation is case-insensitive.
         """
-        valid_modes = {"hybrid", "vector", "grep", "summary"}
+        valid_modes = {"hybrid", "vector", "grep", "fuzzy", "summary"}
 
         # Test lowercase
         assert mode.lower() in valid_modes

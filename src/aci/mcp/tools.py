@@ -59,8 +59,32 @@ def list_tools() -> list[Tool]:
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["hybrid", "vector", "grep"],
-                        "description": "Search mode: 'hybrid' (default) combines semantic and keyword search, 'vector' for semantic only, 'grep' for keyword only",
+                        "enum": ["hybrid", "vector", "grep", "fuzzy"],
+                        "description": "Search mode: 'hybrid' (default) combines semantic and keyword search, 'vector' for semantic only, 'grep' for keyword only, 'fuzzy' for fuzzy text search",
+                    },
+                    "regex": {
+                        "type": "boolean",
+                        "description": "Use regex for text search (applies to mode=grep or hybrid grep-side)",
+                    },
+                    "all_terms": {
+                        "type": "boolean",
+                        "description": "Split query by whitespace and require all terms match (applies to mode=grep or hybrid grep-side)",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Enable case-sensitive text search (grep/regex/fuzzy)",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Context lines before/after the match for text search results",
+                        "minimum": 0,
+                        "maximum": 50,
+                    },
+                    "fuzzy_min_score": {
+                        "type": "number",
+                        "description": "Minimum per-term fuzzy score threshold (0.0-1.0) for mode=fuzzy",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
                     },
                     "artifact_types": {
                         "type": "array",

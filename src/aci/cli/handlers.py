@@ -97,12 +97,28 @@ def create_search_handler(services: "ServicesContainer") -> callable:
         if not command.args:
             return CommandResult(
                 success=False,
-                message="Usage: search <query> [--limit=N] [--type=TYPE]\n\nSearch the indexed codebase.\n"
-                "Types: chunk, function_summary, class_summary, file_summary",
+                message=(
+                    "Usage: search <query> [--limit=N] [--mode=MODE] [--regex=true] [--all_terms=true]\n"
+                    "              [--case_sensitive=true] [--context_lines=N] [--fuzzy_min_score=0.6]\n"
+                    "              [--type=TYPE]\n\n"
+                    "Search the indexed codebase.\n"
+                    "Modes: hybrid, vector, grep, fuzzy, summary\n"
+                    "Types: chunk, function_summary, class_summary, file_summary"
+                ),
             )
 
         query = " ".join(command.args)
         limit = command.kwargs.get("limit", command.kwargs.get("n"))
+        mode = command.kwargs.get("mode", command.kwargs.get("m"))
+        regex = command.kwargs.get("regex")
+        all_terms = command.kwargs.get("all_terms", command.kwargs.get("all-terms"))
+        case_sensitive = command.kwargs.get(
+            "case_sensitive", command.kwargs.get("case-sensitive")
+        )
+        context_lines = command.kwargs.get("context_lines", command.kwargs.get("context-lines"))
+        fuzzy_min_score = command.kwargs.get(
+            "fuzzy_min_score", command.kwargs.get("fuzzy-min-score")
+        )
         artifact_type = command.kwargs.get("type", command.kwargs.get("t"))
 
         # Parse artifact types (can be comma-separated or multiple --type flags)
@@ -116,7 +132,18 @@ def create_search_handler(services: "ServicesContainer") -> callable:
         return CommandResult(
             success=True,
             message=f"search:{query}",
-            data={"query": query, "limit": limit, "artifact_types": artifact_types, "services": services},
+            data={
+                "query": query,
+                "limit": limit,
+                "mode": mode,
+                "regex": regex,
+                "all_terms": all_terms,
+                "case_sensitive": case_sensitive,
+                "context_lines": context_lines,
+                "fuzzy_min_score": fuzzy_min_score,
+                "artifact_types": artifact_types,
+                "services": services,
+            },
         )
 
     return handle_search
@@ -339,7 +366,7 @@ def register_all_commands(
         name="search",
         handler=create_search_handler(services),
         description="Search the indexed codebase",
-        usage="search <query> [--limit=N] [--type=TYPE]",
+        usage="search <query> [--limit=N] [--mode=MODE] [--type=TYPE]",
         arguments=[
             ArgumentInfo(
                 name="query",

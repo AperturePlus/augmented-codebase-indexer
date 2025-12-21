@@ -9,9 +9,9 @@ import inspect
 import logging
 
 from aci.infrastructure.embedding import EmbeddingClientInterface
-from aci.infrastructure.grep_searcher import GrepSearcherInterface
+from aci.infrastructure.grep_searcher import GrepSearcherInterface, TextSearchMode
 from aci.infrastructure.vector_store import SearchResult, VectorStoreInterface
-from aci.services.search_types import RerankerInterface, SearchMode
+from aci.services.search_types import RerankerInterface, SearchMode, TextSearchOptions
 from aci.services.search_utils import (
     apply_exclusions,
     deduplicate_by_location,
@@ -75,6 +75,7 @@ class SearchService:
         search_mode: SearchMode = SearchMode.HYBRID,
         collection_name: str | None = None,
         artifact_types: list[str] | None = None,
+        text_options: TextSearchOptions | None = None,
     ) -> list[SearchResult]:
         """
         Perform semantic search.
@@ -97,6 +98,7 @@ class SearchService:
         Returns:
             List of SearchResult sorted by relevance
         """
+        text_options = text_options or TextSearchOptions()
         limit = limit or self._default_limit
 
         # Parse query for modifiers
@@ -108,7 +110,13 @@ class SearchService:
 
         # Execute searches based on mode
         vector_results, grep_results = await self._dispatch_search(
-            search_query, effective_filter, search_mode, will_rerank, collection_name, artifact_types
+            search_query,
+            effective_filter,
+            search_mode,
+            will_rerank,
+            collection_name,
+            artifact_types,
+            text_options,
         )
 
         # Merge and process results
@@ -128,8 +136,10 @@ class SearchService:
         will_rerank: bool,
         collection_name: str | None,
         artifact_types: list[str] | None = None,
+        text_options: TextSearchOptions | None = None,
     ) -> tuple[list[SearchResult], list[SearchResult]]:
         """Dispatch search based on mode."""
+        text_options = text_options or TextSearchOptions()
         # Handle SUMMARY mode: vector-only with summary artifact types
         if search_mode == SearchMode.SUMMARY:
             summary_types = ["function_summary", "class_summary", "file_summary"]
@@ -137,6 +147,16 @@ class SearchService:
                 query, file_filter, will_rerank, collection_name, summary_types
             )
             return results, []
+
+        if search_mode == SearchMode.FUZZY:
+            results = await self._execute_text_search(
+                query=query,
+                file_filter=file_filter,
+                collection_name=collection_name,
+                text_mode=TextSearchMode.FUZZY,
+                text_options=text_options,
+            )
+            return [], results
 
         if search_mode == SearchMode.HYBRID:
             # Skip grep if artifact_types is specified and doesn't contain "chunk"
@@ -150,7 +170,7 @@ class SearchService:
                 )
                 return results, []
             return await self._execute_hybrid_search(
-                query, file_filter, will_rerank, collection_name, artifact_types
+                query, file_filter, will_rerank, collection_name, artifact_types, text_options
             )
         elif search_mode == SearchMode.VECTOR:
             results = await self._execute_vector_search(
@@ -158,7 +178,12 @@ class SearchService:
             )
             return results, []
         else:  # GREP
-            results = await self._execute_grep_search(query, file_filter, collection_name)
+            results = await self._execute_grep_search(
+                query=query,
+                file_filter=file_filter,
+                collection_name=collection_name,
+                text_options=text_options,
+            )
             return [], results
 
     def _merge_results(
@@ -234,21 +259,61 @@ class SearchService:
         query: str,
         file_filter: str | None,
         collection_name: str | None = None,
+        text_options: TextSearchOptions | None = None,
     ) -> list[SearchResult]:
         """Execute grep search and return results."""
+        text_options = text_options or TextSearchOptions()
+        text_mode = TextSearchMode.REGEX if text_options.regex else TextSearchMode.SUBSTRING
+        return await self._execute_text_search(
+            query=query,
+            file_filter=file_filter,
+            collection_name=collection_name,
+            text_mode=text_mode,
+            text_options=text_options,
+        )
+
+    async def _execute_text_search(
+        self,
+        query: str,
+        file_filter: str | None,
+        collection_name: str | None,
+        text_mode: TextSearchMode,
+        text_options: TextSearchOptions,
+    ) -> list[SearchResult]:
         if not self._grep_searcher:
             return []
 
         try:
             file_paths = await self._vector_store.get_all_file_paths(collection_name)
-            return await self._grep_searcher.search(
-                query=query,
-                file_paths=file_paths,
-                limit=self._grep_candidates,
-                file_filter=file_filter,
-            )
+
+            search_fn = self._grep_searcher.search
+            kwargs = {
+                "query": query,
+                "file_paths": file_paths,
+                "limit": self._grep_candidates,
+                "context_lines": text_options.context_lines,
+                "case_sensitive": text_options.case_sensitive,
+                "file_filter": file_filter,
+                "mode": text_mode,
+                "all_terms": text_options.all_terms,
+                "fuzzy_min_score": text_options.fuzzy_min_score,
+            }
+
+            try:
+                sig = inspect.signature(search_fn)
+                has_var_kwargs = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                )
+                if not has_var_kwargs:
+                    accepted = set(sig.parameters.keys())
+                    kwargs = {k: v for k, v in kwargs.items() if k in accepted}
+            except (TypeError, ValueError):
+                pass
+
+            return await search_fn(**kwargs)
         except Exception as e:
-            logger.error(f"Grep search failed: {e}")
+            logger.error(f"Text search failed: {e}")
             return []
 
     async def _execute_hybrid_search(
@@ -258,13 +323,19 @@ class SearchService:
         use_rerank: bool = False,
         collection_name: str | None = None,
         artifact_types: list[str] | None = None,
+        text_options: TextSearchOptions | None = None,
     ) -> tuple[list[SearchResult], list[SearchResult]]:
         """Execute both vector and grep search in parallel."""
         try:
             vector_task = self._execute_vector_search(
                 query, file_filter, use_rerank, collection_name, artifact_types
             )
-            grep_task = self._execute_grep_search(query, file_filter, collection_name)
+            grep_task = self._execute_grep_search(
+                query=query,
+                file_filter=file_filter,
+                collection_name=collection_name,
+                text_options=text_options,
+            )
 
             vector_results, grep_results = await asyncio.gather(
                 vector_task, grep_task, return_exceptions=True
