@@ -58,8 +58,10 @@ def embedding_config_strategy(draw):
 def vector_store_config_strategy(draw):
     """Generate valid VectorStoreConfig instances."""
     return VectorStoreConfig(
+        url=draw(st.one_of(st.just(""), safe_url)),
         host=draw(st.from_regex(r"[a-z0-9\-\.]+", fullmatch=True).filter(lambda s: len(s) > 0)),
         port=draw(st.integers(min_value=1, max_value=65535)),
+        api_key=draw(safe_text),
         collection_name=draw(
             st.from_regex(r"[a-z0-9_]+", fullmatch=True).filter(lambda s: len(s) > 0)
         ),
@@ -225,6 +227,10 @@ def test_config_to_dict_safe_redacts_api_keys(config: ACIConfig):
     if config.search.rerank_api_key:
         assert safe_dict["search"]["rerank_api_key"] == "[REDACTED]", \
             "Rerank API key should be redacted in safe dict"
+
+    if config.vector_store.api_key:
+        assert safe_dict["vector_store"]["api_key"] == "[REDACTED]", \
+            "Vector store API key should be redacted in safe dict"
 
     # Verify that non-sensitive fields are preserved
     assert safe_dict["embedding"]["api_url"] == config.embedding.api_url

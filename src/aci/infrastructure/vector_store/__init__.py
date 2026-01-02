@@ -25,11 +25,13 @@ def create_vector_store(
     collection_name: str = "aci_codebase",
     vector_size: int = 1536,
     api_key: str | None = None,
+    url: str | None = None,
 ) -> VectorStoreInterface:
     """
     Factory function to create a vector store.
 
     Args:
+        url: Optional Qdrant URL (takes precedence over host/port)
         host: Qdrant server host
         port: Qdrant server port
         collection_name: Name of the collection
@@ -45,4 +47,5 @@ def create_vector_store(
         collection_name=collection_name,
         vector_size=vector_size,
         api_key=api_key,
+        url=url,
     )

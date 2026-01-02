@@ -30,12 +30,17 @@ class QdrantVectorStore(VectorStoreInterface):
         collection_name: str = "aci_codebase",
         vector_size: int = 1536,
         api_key: str | None = None,
+        url: str | None = None,
     ):
+        url = (url or "").strip()
+        if not url and host.startswith(("http://", "https://")):
+            url = host.strip()
         self._host = host
         self._port = port
+        self._url = url
         self._collection_name = collection_name
         self._vector_size = vector_size
-        self._api_key = api_key
+        self._api_key = api_key or None
         self._client: AsyncQdrantClient | None = None
         self._initialized_collections: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
@@ -43,11 +48,13 @@ class QdrantVectorStore(VectorStoreInterface):
     async def _get_client(self) -> AsyncQdrantClient:
         """Get or create the Qdrant client."""
         if self._client is None:
-            self._client = AsyncQdrantClient(
-                host=self._host,
-                port=self._port,
-                api_key=self._api_key,
-            )
+            client_kwargs: dict = {"api_key": self._api_key}
+            if self._url:
+                client_kwargs["url"] = self._url
+            else:
+                client_kwargs["host"] = self._host
+                client_kwargs["port"] = self._port
+            self._client = AsyncQdrantClient(**client_kwargs)
         return self._client
 
     def set_collection(self, collection_name: str) -> None:
@@ -327,11 +334,13 @@ class QdrantVectorStore(VectorStoreInterface):
         collection_to_use = target_collection or self._collection_name
 
         def _do_search():
-            client = QdrantClient(
-                host=self._host,
-                port=self._port,
-                api_key=self._api_key,
-            )
+            client_kwargs: dict = {"api_key": self._api_key}
+            if self._url:
+                client_kwargs["url"] = self._url
+            else:
+                client_kwargs["host"] = self._host
+                client_kwargs["port"] = self._port
+            client = QdrantClient(**client_kwargs)
             return client.query_points(
                 collection_name=collection_to_use,
                 query=query_vector,

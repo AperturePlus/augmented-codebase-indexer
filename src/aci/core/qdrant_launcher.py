@@ -8,6 +8,7 @@ start a local Docker container if Qdrant is not reachable.
 import logging
 import socket
 import subprocess
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,39 @@ def ensure_qdrant_running(
     port: int = 6333,
     container_name: str = "aci-qdrant",
     image: str = "qdrant/qdrant:latest",
+    url: str | None = None,
 ) -> None:
     """
     Ensure a Qdrant instance is reachable. If not, try to start a Docker container.
 
     This is best-effort: if Docker is unavailable, we log a warning and continue.
     """
-    if _is_port_open(host, port):
+    url = (url or "").strip()
+    if not url and host.startswith(("http://", "https://")):
+        url = host.strip()
+
+    check_host = host
+    check_port = port
+    if url:
+        parsed = urlparse(url)
+        if parsed.hostname:
+            check_host = parsed.hostname
+        if parsed.port:
+            check_port = parsed.port
+
+    if check_host == "0.0.0.0":
+        check_host = "localhost"
+
+    if _is_port_open(check_host, check_port):
+        return
+
+    is_local = check_host in {"localhost", "127.0.0.1", "::1"}
+    if not is_local:
+        logger.warning(
+            "Qdrant endpoint %s:%s is unreachable; skipping Docker auto-start (non-local)",
+            check_host,
+            check_port,
+        )
         return
 
     try:
@@ -65,7 +92,7 @@ def ensure_qdrant_running(
                     "--name",
                     container_name,
                     "-p",
-                    f"{port}:6333",
+                    f"{check_port}:6333",
                     image,
                 ],
                 check=False,
@@ -74,19 +101,19 @@ def ensure_qdrant_running(
                 timeout=15,
             )
 
-        if _is_port_open(host, port):
-            logger.info("Started Qdrant container on %s:%s", host, port)
+        if _is_port_open(check_host, check_port):
+            logger.info("Started Qdrant container on %s:%s", check_host, check_port)
         else:
             logger.warning(
                 "Attempted to start Qdrant container, but %s:%s is still unreachable",
-                host,
-                port,
+                check_host,
+                check_port,
             )
     except FileNotFoundError:
         logger.warning(
             "Docker is not installed or not on PATH; cannot auto-start Qdrant on %s:%s",
-            host,
-            port,
+            check_host,
+            check_port,
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Failed to auto-start Qdrant: %s", exc)

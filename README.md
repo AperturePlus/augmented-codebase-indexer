@@ -27,7 +27,7 @@ pip install -e ".[dev]"
 ## Requirements
 
 - Python 3.10+
-- Qdrant (auto-started via Docker if not running)
+- Qdrant (local via Docker auto-start, or cloud via URL + API key)
 - OpenAI-compatible embedding API (OpenAI, SiliconFlow, etc.)
 
 ## Usage
@@ -256,6 +256,8 @@ Key settings:
 | `ACI_EMBEDDING_API_KEY` | API key for embedding service | Yes |
 | `ACI_EMBEDDING_API_URL` | Embedding API endpoint | No (defaults to OpenAI) |
 | `ACI_EMBEDDING_MODEL` | Model name | No |
+| `ACI_VECTOR_STORE_URL` | Qdrant base URL (takes precedence over host/port) | No |
+| `ACI_VECTOR_STORE_API_KEY` | Qdrant API key (for Qdrant Cloud) | No |
 | `ACI_VECTOR_STORE_HOST` | Qdrant host | No (defaults to localhost) |
 | `ACI_VECTOR_STORE_PORT` | Qdrant port | No (defaults to 6333) |
 | `ACI_SERVER_HOST` | HTTP server host | No (defaults to 0.0.0.0) |
@@ -264,6 +266,6 @@ Key settings:
 
 See `.env.example` for the full list of options.
 
-The CLI and HTTP server will attempt to auto-start a local Qdrant Docker container on port `6333`
-if one is not already running.
-
+The CLI and HTTP server will attempt to auto-start a local Qdrant Docker container only when
+targeting a local endpoint (`localhost` / `127.0.0.1`). For cloud Qdrant (`ACI_VECTOR_STORE_URL`),
+it will not run Docker.

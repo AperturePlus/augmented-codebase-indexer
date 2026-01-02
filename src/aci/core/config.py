@@ -75,8 +75,10 @@ class EmbeddingConfig:
 class VectorStoreConfig:
     """Configuration for the Qdrant vector store."""
 
+    url: str = field(default_factory=lambda: _get_default("vector_store", "url", ""))
     host: str = field(default_factory=lambda: _get_default("vector_store", "host", "localhost"))
     port: int = field(default_factory=lambda: _get_default("vector_store", "port", 6333))
+    api_key: str = field(default_factory=lambda: _get_default("vector_store", "api_key", ""))
     collection_name: str = field(
         default_factory=lambda: _get_default("vector_store", "collection_name", "aci_codebase")
     )
@@ -214,8 +216,10 @@ class ACIConfig:
             "ACI_EMBEDDING_TIMEOUT": ("embedding", "timeout", float),
             "ACI_EMBEDDING_DIMENSION": ("embedding", "dimension", int),
             # Vector store config
+            "ACI_VECTOR_STORE_URL": ("vector_store", "url", str),
             "ACI_VECTOR_STORE_HOST": ("vector_store", "host", str),
             "ACI_VECTOR_STORE_PORT": ("vector_store", "port", int),
+            "ACI_VECTOR_STORE_API_KEY": ("vector_store", "api_key", str),
             "ACI_VECTOR_STORE_COLLECTION_NAME": ("vector_store", "collection_name", str),
             "ACI_VECTOR_STORE_VECTOR_SIZE": ("vector_store", "vector_size", int),
             # Indexing config
@@ -334,6 +338,11 @@ class ACIConfig:
         if "search" in config_dict and "rerank_api_key" in config_dict["search"]:
             if config_dict["search"]["rerank_api_key"]:
                 config_dict["search"]["rerank_api_key"] = "[REDACTED]"
+
+        # Redact sensitive fields in vector store config
+        if "vector_store" in config_dict and "api_key" in config_dict["vector_store"]:
+            if config_dict["vector_store"]["api_key"]:
+                config_dict["vector_store"]["api_key"] = "[REDACTED]"
 
         return config_dict
 

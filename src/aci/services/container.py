@@ -83,7 +83,11 @@ def create_services(
     config = load_config(config_path)
 
     # Ensure Qdrant is running
-    ensure_qdrant_running(port=config.vector_store.port)
+    ensure_qdrant_running(
+        host=config.vector_store.host,
+        port=config.vector_store.port,
+        url=config.vector_store.url,
+    )
 
     # Create embedding client
     embedding_client = create_embedding_client(
@@ -102,6 +106,8 @@ def create_services(
         port=config.vector_store.port,
         collection_name=config.vector_store.collection_name,
         vector_size=config.vector_store.vector_size,
+        api_key=config.vector_store.api_key or None,
+        url=config.vector_store.url or None,
     )
 
     # Create metadata store
