@@ -24,3 +24,5 @@ secrets/
 *.pyo
 *.pyd
 vendor/
+.idea/
+TS_MIGRATION_PLAN.md
