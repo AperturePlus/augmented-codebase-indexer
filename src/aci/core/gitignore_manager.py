@@ -124,6 +124,9 @@ class GitignoreManager:
         self._pathspec: pathspec.PathSpec | None = None
         self._pathspec_dirty = True
 
+        # Cache for single-pattern pathspec objects used during matching
+        self._pattern_spec_cache: dict[str, pathspec.PathSpec] = {}
+
     def load_gitignore(self, gitignore_path: Path) -> int:
         """
         Load patterns from a .gitignore file.
@@ -218,6 +221,7 @@ class GitignoreManager:
 
         if patterns_loaded > 0:
             self._pathspec_dirty = True
+            self._pattern_spec_cache.clear()
 
         # Log summary at debug level (Requirement 6.1)
         logger.debug(
@@ -278,6 +282,7 @@ class GitignoreManager:
 
         if patterns:
             self._pathspec_dirty = True
+            self._pattern_spec_cache.clear()
 
     def load_gitignore_hierarchy(self, root_path: Path | None = None) -> int:
         """
@@ -476,12 +481,17 @@ class GitignoreManager:
         else:
             rel_path_str_match = rel_path_str
 
+        # Directory patterns (e.g., out/) should also match directory paths directly
+        match_candidates = [rel_path_str_match]
+        if is_dir and rel_path_str_match:
+            match_candidates.append(f"{rel_path_str_match}/")
+
         # Track whether the path is currently ignored and which pattern matched
         ignored = False
         matching_pattern: GitignorePattern | None = None
 
         for pattern in self._patterns:
-            if self._pattern_matches(pattern, rel_path_str, rel_path_str_match, is_dir):
+            if self._pattern_matches(pattern, match_candidates):
                 # Pattern matches - update ignored status based on negation
                 ignored = not pattern.negation
                 matching_pattern = pattern
@@ -498,9 +508,7 @@ class GitignoreManager:
     def _pattern_matches(
         self,
         pattern: GitignorePattern,
-        rel_path_str: str,
-        rel_path_str_match: str,
-        is_dir: bool,
+        match_candidates: list[str],
     ) -> bool:
         """
         Check if a single pattern matches the given path.
@@ -511,51 +519,56 @@ class GitignoreManager:
 
         Args:
             pattern: The GitignorePattern to check
-            rel_path_str: Original relative path string (for display)
-            rel_path_str_match: Path string for matching (may be lowercased)
-            is_dir: True if the path is a directory
+            match_candidates: Normalized path candidates to evaluate
 
         Returns:
             True if the pattern matches
         """
-        # Directory-only patterns only match directories
-        if pattern.directory_only and not is_dir:
+        try:
+            effective_pattern = self._build_effective_pattern(pattern)
+            spec = self._get_or_build_pattern_spec(effective_pattern)
+            return any(spec.match_file(candidate) for candidate in match_candidates)
+        except Exception:
             return False
 
-        # Get the pattern string for matching
-        pattern_str = pattern.pattern
+    def _build_effective_pattern(self, pattern: GitignorePattern) -> str:
+        """Convert a parsed pattern to a root-scoped GitWildMatch pattern string."""
+        base_pattern = pattern.pattern
+
         if not self._case_sensitive:
-            pattern_str = pattern_str.lower()
+            base_pattern = base_pattern.lower()
 
-        # For nested gitignore files, scope the pattern relative to its source directory
-        # Patterns from /subdir/.gitignore only apply to files under /subdir/
-        scoped_path_str = rel_path_str_match
-        if pattern.source_depth > 0:
-            # Calculate the relative path from the gitignore's directory
-            source_dir = self._get_pattern_source_dir(pattern)
-            if source_dir:
-                source_dir_str = source_dir.replace("\\", "/")
-                if not self._case_sensitive:
-                    source_dir_str = source_dir_str.lower()
+        if pattern.directory_only:
+            base_pattern = f"{base_pattern}/"
 
-                # Check if the path is under the gitignore's directory
-                if not rel_path_str_match.startswith(source_dir_str + "/") and rel_path_str_match != source_dir_str:
-                    # Path is not under this gitignore's scope
-                    return False
+        source_dir = self._get_pattern_source_dir(pattern)
+        if source_dir and not self._case_sensitive:
+            source_dir = source_dir.lower()
 
-                # Make path relative to the gitignore's directory
-                if rel_path_str_match.startswith(source_dir_str + "/"):
-                    scoped_path_str = rel_path_str_match[len(source_dir_str) + 1:]
-                elif rel_path_str_match == source_dir_str:
-                    scoped_path_str = ""
+        # Keep root-anchored patterns anchored with a leading slash.
+        if not source_dir:
+            if pattern.anchored:
+                return f"/{base_pattern}"
+            return base_pattern
 
-        # Handle anchored patterns (must match from root of scope)
+        # Nested .gitignore patterns are scoped to their source directory.
         if pattern.anchored:
-            # Anchored pattern - must match from the start of the scoped path
-            return self._match_anchored(pattern_str, scoped_path_str)
-        else:
-            # Non-anchored pattern - can match anywhere in the path
-            return self._match_unanchored(pattern_str, scoped_path_str)
+            return f"{source_dir}/{base_pattern}"
+
+        # Unanchored patterns containing slashes are relative to source directory.
+        if "/" in pattern.pattern:
+            return f"{source_dir}/{base_pattern}"
+
+        # Bare names in nested .gitignore files match at any depth within that subtree.
+        return f"{source_dir}/**/{base_pattern}"
+
+    def _get_or_build_pattern_spec(self, pattern_str: str) -> pathspec.PathSpec:
+        """Get a cached single-pattern PathSpec matcher."""
+        if pattern_str not in self._pattern_spec_cache:
+            self._pattern_spec_cache[pattern_str] = pathspec.PathSpec.from_lines(
+                pathspec.patterns.GitWildMatchPattern, [pattern_str]
+            )
+        return self._pattern_spec_cache[pattern_str]
 
     def _get_pattern_source_dir(self, pattern: GitignorePattern) -> str | None:
         """
@@ -577,84 +590,3 @@ class GitignoreManager:
             return str(rel_source_dir).replace("\\", "/")
         except ValueError:
             return None
-
-    def _match_anchored(self, pattern_str: str, rel_path_str: str) -> bool:
-        """
-        Match an anchored pattern (starts with /).
-
-        Anchored patterns only match at the root level - they cannot match
-        files in subdirectories unless the pattern itself contains path separators.
-
-        Args:
-            pattern_str: Pattern string (without leading /)
-            rel_path_str: Relative path string
-
-        Returns:
-            True if pattern matches
-        """
-        try:
-            # For anchored patterns without path separators, only match at root level
-            if "/" not in pattern_str and "**" not in pattern_str:
-                # Simple anchored pattern - only match if path has no directory component
-                # or if the first component matches
-                path_parts = rel_path_str.split("/")
-                if len(path_parts) > 1:
-                    # File is in a subdirectory - anchored pattern without / shouldn't match
-                    return False
-                # Match against the single component
-                spec = pathspec.PathSpec.from_lines(
-                    pathspec.patterns.GitWildMatchPattern, [pattern_str]
-                )
-                return spec.match_file(rel_path_str)
-            else:
-                # Pattern contains path separators or **, use full path matching
-                spec = pathspec.PathSpec.from_lines(
-                    pathspec.patterns.GitWildMatchPattern, [pattern_str]
-                )
-                return spec.match_file(rel_path_str)
-        except Exception:
-            return False
-
-    def _match_unanchored(self, pattern_str: str, rel_path_str: str) -> bool:
-        """
-        Match an unanchored pattern.
-
-        Unanchored patterns can match:
-        - The full path
-        - Any path component (basename)
-        - Using ** for directory wildcards
-
-        Args:
-            pattern_str: Pattern string
-            rel_path_str: Relative path string
-
-        Returns:
-            True if pattern matches
-        """
-        try:
-            # If pattern contains a slash, it's path-relative
-            if "/" in pattern_str:
-                spec = pathspec.PathSpec.from_lines(
-                    pathspec.patterns.GitWildMatchPattern, [pattern_str]
-                )
-                return spec.match_file(rel_path_str)
-            else:
-                # Pattern without slash matches basename anywhere in path
-                # Check each path component
-                path_parts = rel_path_str.split("/")
-                spec = pathspec.PathSpec.from_lines(
-                    pathspec.patterns.GitWildMatchPattern, [pattern_str]
-                )
-
-                # Match against basename
-                if spec.match_file(path_parts[-1]):
-                    return True
-
-                # Also check if any directory component matches
-                for part in path_parts[:-1]:
-                    if spec.match_file(part):
-                        return True
-
-                return False
-        except Exception:
-            return False
