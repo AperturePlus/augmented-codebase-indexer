@@ -48,6 +48,7 @@ app = typer.Typer(
     name="aci",
     help="Augmented Codebase Indexer - Semantic code search",
     add_completion=False,
+    context_settings={"color": False},
 )
 
 def get_services():

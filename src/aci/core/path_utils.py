@@ -10,7 +10,7 @@ import hashlib
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 @dataclass
@@ -88,23 +88,24 @@ def _is_posix_system_directory(path_str: str) -> bool:
 
 def _is_windows_system_directory(resolved: Path, path_str: str) -> bool:
     """Check if path is under a Windows system directory."""
-    # Get path parts for case-insensitive comparison
-    parts_lower = [p.lower() for p in resolved.parts]
+    # Parse as Windows path explicitly so POSIX hosts correctly split
+    # strings like "C:\\Windows" into drive + folders.
+    windows_path = PureWindowsPath(path_str)
+    win_parts = [part.lower() for part in windows_path.parts if part not in ("\\", "/")]
 
-    # Check if any part matches a known system directory name
-    for part in parts_lower:
-        if part in WINDOWS_SYSTEM_DIRS:
-            return True
+    # Strip drive prefix (e.g., "c:") if present.
+    if win_parts and re.fullmatch(r"[a-z]:", win_parts[0]):
+        win_parts = win_parts[1:]
 
-    # Also check the drive root system directories
-    # e.g., C:\Windows, D:\Windows (though rare)
-    if len(resolved.parts) >= 2:
-        # parts[0] is drive like 'C:\', parts[1] is first folder
-        first_folder = resolved.parts[1].lower()
-        if first_folder in WINDOWS_SYSTEM_DIRS:
-            return True
+    if win_parts and win_parts[0] in WINDOWS_SYSTEM_DIRS:
+        return True
 
-    return False
+    # Fallback for already-normalized native Path objects.
+    resolved_parts = [part.lower() for part in resolved.parts]
+    if len(resolved_parts) >= 2 and resolved_parts[1] in WINDOWS_SYSTEM_DIRS:
+        return True
+
+    return any(part in WINDOWS_SYSTEM_DIRS for part in resolved_parts)
 
 
 def validate_indexable_path(path: str | Path) -> PathValidationResult:

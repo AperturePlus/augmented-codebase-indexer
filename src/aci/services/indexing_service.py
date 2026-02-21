@@ -31,7 +31,7 @@ from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
-from aci.services.indexing_worker import init_worker, process_file_worker
+from aci.services import indexing_worker
 from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ class IndexingService:
         try:
             executor_kwargs = {
                 "max_workers": max_workers,
-                "initializer": init_worker,
+                "initializer": indexing_worker.init_worker,
                 "initargs": (self._chunker_config,),
             }
             if mp_context is not None:
@@ -287,7 +287,7 @@ class IndexingService:
                 for scanned_file in files:
                     future = loop.run_in_executor(
                         executor,
-                        process_file_worker,
+                        indexing_worker.process_file_worker,
                         str(scanned_file.path),
                         scanned_file.content,
                         scanned_file.language,
@@ -334,6 +334,17 @@ class IndexingService:
                                 }
 
                     except Exception as e:
+                        # If workers fail to pickle task callables, switch to
+                        # sequential processing instead of marking every file failed.
+                        if not all_chunks and self._is_process_pool_pickling_error(e):
+                            logger.warning(
+                                "Parallel processing serialization failed (%s). "
+                                "Falling back to sequential processing.",
+                                e,
+                            )
+                            return await self._process_files_sequential(
+                                files, result, total_files
+                            )
                         logger.error(f"Failed to process {scanned_file.path}: {e}")
                         result.failed_files.append(str(scanned_file.path))
 
@@ -355,6 +366,14 @@ class IndexingService:
         all_summaries = self._generate_summaries_for_files(successfully_processed_files)
 
         return all_chunks, all_summaries, result
+
+    @staticmethod
+    def _is_process_pool_pickling_error(exc: Exception) -> bool:
+        """Detect task serialization errors from ProcessPoolExecutor."""
+        msg = str(exc).lower()
+        return "pickle" in msg and (
+            "process_file_worker" in msg or "can't pickle" in msg or "cannot pickle" in msg
+        )
 
     def _get_process_pool_mp_context(self):
         """
