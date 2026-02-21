@@ -30,8 +30,8 @@ from aci.core.summary_generator import SummaryGeneratorInterface
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
-from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
 from aci.services import indexing_worker
+from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
 from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)

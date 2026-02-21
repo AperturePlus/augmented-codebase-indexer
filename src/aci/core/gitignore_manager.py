@@ -527,9 +527,56 @@ class GitignoreManager:
         try:
             effective_pattern = self._build_effective_pattern(pattern)
             spec = self._get_or_build_pattern_spec(effective_pattern)
-            return any(spec.match_file(candidate) for candidate in match_candidates)
+
+            for candidate in match_candidates:
+                if not self._anchored_candidate_depth_ok(pattern, candidate):
+                    continue
+                if spec.match_file(candidate):
+                    return True
+            return False
         except Exception:
             return False
+
+    def _anchored_candidate_depth_ok(
+        self,
+        pattern: GitignorePattern,
+        candidate: str,
+    ) -> bool:
+        """
+        Enforce scope-root depth for anchored non-directory patterns.
+
+        PathSpec treats `/name` as matching a root directory and its descendants.
+        For this codebase's semantics, anchored patterns should match only at
+        their scope root depth (e.g., `/a` matches `a` but not `a/b/c/a`).
+        """
+        if not pattern.anchored:
+            return True
+
+        # Keep standard recursive behavior for anchored directory-only patterns.
+        if pattern.directory_only:
+            return True
+
+        # Keep explicit recursive intent if pattern uses globstar.
+        if "**" in pattern.pattern:
+            return True
+
+        source_dir = self._get_pattern_source_dir(pattern)
+        if source_dir and not self._case_sensitive:
+            source_dir = source_dir.lower()
+
+        candidate_clean = candidate.rstrip("/")
+        scoped_path = candidate_clean
+
+        if source_dir:
+            source_prefix = f"{source_dir}/"
+            if not candidate_clean.startswith(source_prefix):
+                return False
+            scoped_path = candidate_clean[len(source_prefix):]
+
+        # Anchored patterns only match paths at the scope root depth.
+        pattern_depth = len([part for part in pattern.pattern.split("/") if part])
+        candidate_depth = len([part for part in scoped_path.split("/") if part])
+        return candidate_depth == pattern_depth
 
     def _build_effective_pattern(self, pattern: GitignorePattern) -> str:
         """Convert a parsed pattern to a root-scoped GitWildMatch pattern string."""

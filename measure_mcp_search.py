@@ -7,7 +7,7 @@ from pathlib import Path
 # Add project root to sys.path so we can import aci
 sys.path.insert(0, os.path.abspath("."))
 
-from aci.mcp.handlers import _handle_search_code, _handle_index_codebase
+from aci.mcp.handlers import _handle_index_codebase, _handle_search_code
 
 # Define QA Pairs
 QA_PAIRS = [
@@ -77,7 +77,7 @@ async def run_tests():
     # 1. Setup / Ensure Index
     target_path = str(Path("src/aci").resolve())
     print(f"Target Path: {target_path}")
-    
+
     # Check if we should re-index (env var flag)
     if os.environ.get("REINDEX", "0") == "1":
         print("Forcing re-indexing...")
@@ -92,12 +92,12 @@ async def run_tests():
 
     passed_file = 0
     passed_term = 0
-    
+
     for i, item in enumerate(QA_PAIRS, 1):
         question = item["q"]
         print(f"Q{i}: {question}")
         print(f"    Target: {item['desc']}")
-        
+
         # Call the MCP handler
         response_list = await _handle_search_code({
             "query": question,
@@ -105,30 +105,30 @@ async def run_tests():
             "limit": 5,  # Increased limit for harder questions
             "mode": "hybrid"
         })
-        
+
         # Parse output
         raw_text = response_list[0].text
         try:
             data = json.loads(raw_text)
             results = data.get("results", [])
-            
+
             if not results:
                 print("    ❌ NO RESULTS FOUND")
                 print("-" * 60)
                 continue
-            
+
             # Check top 5 results
             found_file_idx = -1
             found_term_idx = -1
-            
+
             for rank, res in enumerate(results, 1):
                 file_path = res.get("file_path", "")
                 content = res.get("content", "")
-                
+
                 # Check for file match
                 if found_file_idx == -1 and item["expected_partial"] in file_path:
                     found_file_idx = rank
-                
+
                 # Check for term match (case-insensitive)
                 if found_term_idx == -1 and item["expected_term"].lower() in content.lower():
                     found_term_idx = rank
@@ -149,14 +149,14 @@ async def run_tests():
                 print(f"    ⚠️  Term NOT found in top 5 snippets. Expected: '{item['expected_term']}'")
 
         except json.JSONDecodeError:
-            print(f"    ❌ Error decoding JSON response")
+            print("    ❌ Error decoding JSON response")
             print(f"       Raw response: {raw_text[:200]}...")
         except Exception as e:
             print(f"    ❌ Exception: {e}")
-            
+
         print("-" * 60)
-        
-    print(f"\nTEST SUMMARY:")
+
+    print("\nTEST SUMMARY:")
     print(f"Files Found: {passed_file}/{len(QA_PAIRS)}")
     print(f"Terms Found: {passed_term}/{len(QA_PAIRS)}")
 
