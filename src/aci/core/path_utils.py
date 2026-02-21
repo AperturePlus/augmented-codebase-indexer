@@ -93,9 +93,12 @@ def _is_windows_system_directory(resolved: Path, path_str: str) -> bool:
     windows_path = PureWindowsPath(path_str)
     win_parts = [part.lower() for part in windows_path.parts if part not in ("\\", "/")]
 
-    # Strip drive prefix (e.g., "c:") if present.
-    if win_parts and re.fullmatch(r"[a-z]:", win_parts[0]):
-        win_parts = win_parts[1:]
+    # Strip Windows drive/root prefixes (e.g., "c:\\" -> "c:") so the
+    # first semantic directory component can be matched reliably.
+    if win_parts:
+        drive = win_parts[0].rstrip("\\/")
+        if re.fullmatch(r"[a-z]:", drive):
+            win_parts = win_parts[1:]
 
     if win_parts and win_parts[0] in WINDOWS_SYSTEM_DIRS:
         return True
