@@ -93,8 +93,12 @@ def _is_windows_system_directory(resolved: Path, path_str: str) -> bool:
     windows_path = PureWindowsPath(path_str)
     win_parts = [part.lower() for part in windows_path.parts if part not in ("\\", "/")]
 
-    # Strip drive prefix (e.g., "c:") if present.
-    if win_parts and re.fullmatch(r"[a-z]:", win_parts[0]):
+    # Strip Windows anchor prefixes (e.g., "C:\\", "\\\\server\\share\\").
+    anchor = windows_path.anchor.lower()
+    if anchor and win_parts and win_parts[0] == anchor:
+        win_parts = win_parts[1:]
+    elif win_parts and re.fullmatch(r"[a-z]:", win_parts[0]):
+        # Defensive fallback for drive-only prefixes represented as "c:".
         win_parts = win_parts[1:]
 
     if win_parts and win_parts[0] in WINDOWS_SYSTEM_DIRS:
