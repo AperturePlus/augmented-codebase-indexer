@@ -2,9 +2,10 @@ name: Test MCP Server
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ '**' ]
+    tags-ignore: [ '**' ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ '**' ]
 
 jobs:
   test-mcp:
