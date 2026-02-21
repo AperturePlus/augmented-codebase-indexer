@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -8,6 +9,16 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath("."))
 
 from aci.mcp.handlers import _handle_index_codebase, _handle_search_code
+
+# CLI-style logger (plain message output, no level prefixes)
+LOGGER = logging.getLogger("measure_mcp_search")
+if not LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    LOGGER.addHandler(_handler)
+LOGGER.setLevel(logging.INFO)
+LOGGER.propagate = False
+
 
 # Define QA Pairs
 QA_PAIRS = [
@@ -76,27 +87,27 @@ QA_PAIRS = [
 async def run_tests():
     # 1. Setup / Ensure Index
     target_path = str(Path("src/aci").resolve())
-    print(f"Target Path: {target_path}")
+    LOGGER.info(f"Target Path: {target_path}")
 
     # Check if we should re-index (env var flag)
     if os.environ.get("REINDEX", "0") == "1":
-        print("Forcing re-indexing...")
+        LOGGER.info("Forcing re-indexing...")
         idx_res = await _handle_index_codebase({"path": target_path})
-        print(f"Index Result: {idx_res[0].text[:200]}...")
+        LOGGER.info(f"Index Result: {idx_res[0].text[:200]}...")
     else:
-        print("Skipping re-indexing (set REINDEX=1 to force). Assuming index exists.")
+        LOGGER.info("Skipping re-indexing (set REINDEX=1 to force). Assuming index exists.")
 
-    print("\n" + "="*80)
-    print("STARTING COMPLEX SEARCH QUALITY TEST")
-    print("="*80 + "\n")
+    LOGGER.info("\n" + "=" * 80)
+    LOGGER.info("STARTING COMPLEX SEARCH QUALITY TEST")
+    LOGGER.info("=" * 80 + "\n")
 
     passed_file = 0
     passed_term = 0
 
     for i, item in enumerate(QA_PAIRS, 1):
         question = item["q"]
-        print(f"Q{i}: {question}")
-        print(f"    Target: {item['desc']}")
+        LOGGER.info(f"Q{i}: {question}")
+        LOGGER.info(f"    Target: {item['desc']}")
 
         # Call the MCP handler
         response_list = await _handle_search_code({
@@ -113,8 +124,8 @@ async def run_tests():
             results = data.get("results", [])
 
             if not results:
-                print("    ❌ NO RESULTS FOUND")
-                print("-" * 60)
+                LOGGER.info("    ❌ NO RESULTS FOUND")
+                LOGGER.info("-" * 60)
                 continue
 
             # Check top 5 results
@@ -135,30 +146,30 @@ async def run_tests():
 
             # Report File Finding
             if found_file_idx != -1:
-                print(f"    ✅ File found at rank #{found_file_idx} ({item['expected_partial']})")
+                LOGGER.info(f"    ✅ File found at rank #{found_file_idx} ({item['expected_partial']})")
                 passed_file += 1
             else:
-                print(f"    ❌ File NOT found in top 5. Expected: {item['expected_partial']}")
-                print(f"       Top result: {results[0].get('file_path')}")
+                LOGGER.info(f"    ❌ File NOT found in top 5. Expected: {item['expected_partial']}")
+                LOGGER.info(f"       Top result: {results[0].get('file_path')}")
 
             # Report Term Finding
             if found_term_idx != -1:
-                print(f"    ✅ Term found at rank #{found_term_idx} ('{item['expected_term']}')")
+                LOGGER.info(f"    ✅ Term found at rank #{found_term_idx} ('{item['expected_term']}')")
                 passed_term += 1
             else:
-                print(f"    ⚠️  Term NOT found in top 5 snippets. Expected: '{item['expected_term']}'")
+                LOGGER.info(f"    ⚠️  Term NOT found in top 5 snippets. Expected: '{item['expected_term']}'")
 
         except json.JSONDecodeError:
-            print("    ❌ Error decoding JSON response")
-            print(f"       Raw response: {raw_text[:200]}...")
+            LOGGER.info("    ❌ Error decoding JSON response")
+            LOGGER.info(f"       Raw response: {raw_text[:200]}...")
         except Exception as e:
-            print(f"    ❌ Exception: {e}")
+            LOGGER.info(f"    ❌ Exception: {e}")
 
-        print("-" * 60)
+        LOGGER.info("-" * 60)
 
-    print("\nTEST SUMMARY:")
-    print(f"Files Found: {passed_file}/{len(QA_PAIRS)}")
-    print(f"Terms Found: {passed_term}/{len(QA_PAIRS)}")
+    LOGGER.info("\nTEST SUMMARY:")
+    LOGGER.info(f"Files Found: {passed_file}/{len(QA_PAIRS)}")
+    LOGGER.info(f"Terms Found: {passed_term}/{len(QA_PAIRS)}")
 
 if __name__ == "__main__":
     asyncio.run(run_tests())
