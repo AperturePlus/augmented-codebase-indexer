@@ -30,8 +30,8 @@ from aci.core.summary_generator import SummaryGeneratorInterface
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexedFileInfo, IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
+from aci.services import indexing_worker
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
-from aci.services.indexing_worker import init_worker, process_file_worker
 from aci.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ class IndexingService:
         try:
             executor_kwargs = {
                 "max_workers": max_workers,
-                "initializer": init_worker,
+                "initializer": indexing_worker.init_worker,
                 "initargs": (self._chunker_config,),
             }
             if mp_context is not None:
@@ -287,7 +287,7 @@ class IndexingService:
                 for scanned_file in files:
                     future = loop.run_in_executor(
                         executor,
-                        process_file_worker,
+                        indexing_worker.process_file_worker,
                         str(scanned_file.path),
                         scanned_file.content,
                         scanned_file.language,
@@ -334,6 +334,17 @@ class IndexingService:
                                 }
 
                     except Exception as e:
+                        # If workers fail to pickle task callables, switch to
+                        # sequential processing instead of marking every file failed.
+                        if not all_chunks and self._is_process_pool_pickling_error(e):
+                            logger.warning(
+                                "Parallel processing serialization failed (%s). "
+                                "Falling back to sequential processing.",
+                                e,
+                            )
+                            return await self._process_files_sequential(
+                                files, result, total_files
+                            )
                         logger.error(f"Failed to process {scanned_file.path}: {e}")
                         result.failed_files.append(str(scanned_file.path))
 
@@ -355,6 +366,14 @@ class IndexingService:
         all_summaries = self._generate_summaries_for_files(successfully_processed_files)
 
         return all_chunks, all_summaries, result
+
+    @staticmethod
+    def _is_process_pool_pickling_error(exc: Exception) -> bool:
+        """Detect task serialization errors from ProcessPoolExecutor."""
+        msg = str(exc).lower()
+        return "pickle" in msg and (
+            "process_file_worker" in msg or "can't pickle" in msg or "cannot pickle" in msg
+        )
 
     def _get_process_pool_mp_context(self):
         """
@@ -704,6 +723,7 @@ class IndexingService:
 
                 # Collect file info from this batch before writing vectors
                 batch_file_infos: dict[str, dict] = {}
+                batch_points: list[tuple[str, list[float], dict]] = []
 
                 # Time Qdrant upsert operations
                 qdrant_start = time.time()
@@ -720,16 +740,16 @@ class IndexingService:
                         "artifact_type": ArtifactType.CHUNK.value,
                         **chunk.metadata,
                     }
-                    await self._vector_store.upsert(
-                        chunk.chunk_id,
-                        embedding,
-                        payload,
-                        collection_name=collection_name,
-                    )
+                    batch_points.append((chunk.chunk_id, embedding, payload))
 
                     file_path = pending_info["file_path"] if pending_info else None
                     if file_path and file_path not in persisted_files:
                         batch_file_infos[file_path] = pending_info
+
+                await self._upsert_points(
+                    batch_points,
+                    collection_name=collection_name,
+                )
 
                 qdrant_duration_ms = (time.time() - qdrant_start) * 1000
 
@@ -799,6 +819,7 @@ class IndexingService:
                         actual=len(embeddings),
                     )
 
+                summary_points: list[tuple[str, list[float], dict]] = []
                 for summary, embedding in zip(batch, embeddings, strict=False):
                     payload = {
                         "file_path": summary.file_path,
@@ -809,18 +830,46 @@ class IndexingService:
                         "name": summary.name,
                         **summary.metadata,
                     }
-                    await self._vector_store.upsert(
-                        summary.artifact_id,
-                        embedding,
-                        payload,
-                        collection_name=collection_name,
-                    )
+                    summary_points.append((summary.artifact_id, embedding, payload))
+
+                await self._upsert_points(
+                    summary_points,
+                    collection_name=collection_name,
+                )
 
                 self._report_progress(
                     total_chunks + min(i + self._batch_size, total_summaries),
                     total_items,
                     f"Embedded {min(i + self._batch_size, total_summaries)} summaries",
                 )
+
+    async def _upsert_points(
+        self,
+        points: list[tuple[str, list[float], dict]],
+        *,
+        collection_name: str | None,
+    ) -> None:
+        """
+        Upsert points with best-effort batching.
+
+        Uses vector-store batch upsert when available, and falls back to
+        per-point upsert for compatibility with lightweight test doubles.
+        """
+        if not points:
+            return
+
+        upsert_batch = getattr(self._vector_store, "upsert_batch", None)
+        if callable(upsert_batch):
+            await upsert_batch(points, collection_name=collection_name)
+            return
+
+        for chunk_id, embedding, payload in points:
+            await self._vector_store.upsert(
+                chunk_id,
+                embedding,
+                payload,
+                collection_name=collection_name,
+            )
 
     async def update_incremental(
         self, root_path: Path, *, max_workers: int | None = None
