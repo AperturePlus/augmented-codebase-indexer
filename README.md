@@ -1,5 +1,7 @@
 # Project ACI - Augmented Codebase Indexer
 
+Language: **English** | [简体中文](doc/README.zh-CN.md)
+
 A Python tool for semantic code search with precise line-level location results.
 
 ## Features
@@ -215,6 +217,18 @@ uv run python tests/test_mcp_call/test_stdio.py
 
 # Test indexing
 uv run python tests/test_mcp_call/test_index_codebase.py
+```
+
+### Search Quality Measurement Script
+
+Use the standalone quality script (kept outside `tests/` to avoid CI flakiness):
+
+```bash
+# Assume index already exists
+uv run python scripts/measure_mcp_search.py
+
+# Force re-index before running measurements
+REINDEX=1 uv run python scripts/measure_mcp_search.py
 ```
 
 ### Debug Mode
