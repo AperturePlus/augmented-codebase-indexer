@@ -98,7 +98,7 @@ class VectorStoreInterface(ABC):
         """Get all unique file paths in the store."""
         pass
 
-    async def reset(self) -> None:
+    async def reset(self) -> None:  # noqa: B027
         """Reset/clear the vector store (optional)."""
         pass
 

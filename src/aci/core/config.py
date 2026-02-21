@@ -285,7 +285,7 @@ class ACIConfig:
             else:
                 raise ValueError(f"Unsupported config file format: {path.suffix}")
         except Exception as e:
-            raise ValueError(f"Failed to parse config file {path}: {e}")
+            raise ValueError(f"Failed to parse config file {path}: {e}") from e
 
         # Helper to safely create nested config objects
         def create_subconfig(config_cls, section_data):

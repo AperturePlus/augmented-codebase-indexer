@@ -46,7 +46,7 @@ def parse_embedding_response(
         return embeddings
 
     except (KeyError, TypeError) as e:
-        raise NonRetryableError(f"Invalid response format: {e}")
+        raise NonRetryableError(f"Invalid response format: {e}") from e
 
 
 def is_token_limit_error(status_code: int, response_text: str) -> bool:

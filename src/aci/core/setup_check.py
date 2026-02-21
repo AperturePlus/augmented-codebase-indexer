@@ -21,7 +21,7 @@ def check_tree_sitter_environment() -> bool:
 
     # Check tree-sitter core
     try:
-        import tree_sitter
+        import tree_sitter  # noqa: F401
 
     except ImportError:
         all_ok = False

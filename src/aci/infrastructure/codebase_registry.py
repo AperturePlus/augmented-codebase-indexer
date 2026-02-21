@@ -126,7 +126,7 @@ class CodebaseRegistryStore:
             try:
                 self._db_path.parent.mkdir(parents=True, exist_ok=True)
             except Exception:
-                raise CodebaseRegistryError(f"Failed to create registry directory: {self._db_path.parent}")
+                raise CodebaseRegistryError(f"Failed to create registry directory: {self._db_path.parent}") from None
 
             self._conn = sqlite3.connect(str(self._db_path))
             self._conn.row_factory = sqlite3.Row

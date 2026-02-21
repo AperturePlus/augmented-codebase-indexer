@@ -4,8 +4,6 @@ Vector Store module for Project ACI.
 Provides Qdrant-based vector storage and retrieval for code chunks.
 """
 
-from typing import Optional
-
 from .base import SearchResult, VectorStoreError, VectorStoreInterface, is_glob_pattern
 from .qdrant import QdrantVectorStore
 

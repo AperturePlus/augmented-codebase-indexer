@@ -8,7 +8,6 @@ import asyncio
 import signal
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -35,7 +34,6 @@ from aci.services import (
     PathValidationError,
     SearchMode,
     SearchService,
-    ServicesContainer,
     TextSearchOptions,
     WatchService,
     WatchServiceError,

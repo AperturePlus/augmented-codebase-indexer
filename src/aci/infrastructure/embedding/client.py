@@ -263,11 +263,11 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
                 )
 
         except httpx.TimeoutException as e:
-            raise RetryableError(f"Request timeout: {e}")
+            raise RetryableError(f"Request timeout: {e}") from e
         except httpx.ConnectError as e:
-            raise RetryableError(f"Connection error: {e}")
+            raise RetryableError(f"Connection error: {e}") from e
         except httpx.RequestError as e:
-            raise RetryableError(f"Request error: {e}")
+            raise RetryableError(f"Request error: {e}") from e
 
 
 def create_embedding_client(

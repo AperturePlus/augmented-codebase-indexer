@@ -131,6 +131,24 @@ ignore = [
     "S101",  # 允许 assert（测试需要）
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# typer/FastAPI 要求在默认参数中调用函数，这是框架惯用写法
+"src/aci/cli/__init__.py" = ["B008", "B904"]
+"src/aci/http_server.py" = ["B008", "B904"]
+# 服务器绑定 0.0.0.0 是故意设计的行为
+"src/aci/core/config.py" = ["S104"]
+"src/aci/core/qdrant_launcher.py" = ["S104", "S603", "S607"]
+# 参数化占位符构造，无 SQL 注入风险
+"src/aci/infrastructure/metadata_store/queries.py" = ["S608"]
+# 故意的尽力清理（best-effort cleanup），不抛出清理错误
+"src/aci/cli/repl/controller.py" = ["S110"]
+"src/aci/cli/repl/event_loop.py" = ["S110"]
+"src/aci/cli/repl/indexing_ops.py" = ["S110"]
+"src/aci/infrastructure/vector_store/qdrant.py" = ["S110"]
+"src/aci/mcp/context.py" = ["S110"]
+# 测试文件允许使用 /tmp 及文件中段导入
+"tests/**/*.py" = ["S108", "E402"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["aci"]
 
