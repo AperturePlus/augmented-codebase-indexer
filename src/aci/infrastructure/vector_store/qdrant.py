@@ -31,6 +31,9 @@ class QdrantVectorStore(VectorStoreInterface):
         vector_size: int = 1536,
         api_key: str | None = None,
         url: str | None = None,
+        timeout_seconds: float = 60.0,
+        write_retry_attempts: int = 3,
+        write_retry_backoff_seconds: float = 0.5,
     ):
         url = (url or "").strip()
         if not url and host.startswith(("http://", "https://")):
@@ -41,6 +44,9 @@ class QdrantVectorStore(VectorStoreInterface):
         self._collection_name = collection_name
         self._vector_size = vector_size
         self._api_key = api_key or None
+        self._timeout_seconds = timeout_seconds
+        self._write_retry_attempts = max(1, write_retry_attempts)
+        self._write_retry_backoff_seconds = max(0.0, write_retry_backoff_seconds)
         self._client: AsyncQdrantClient | None = None
         self._initialized_collections: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
@@ -48,7 +54,10 @@ class QdrantVectorStore(VectorStoreInterface):
     async def _get_client(self) -> AsyncQdrantClient:
         """Get or create the Qdrant client."""
         if self._client is None:
-            client_kwargs: dict = {"api_key": self._api_key}
+            client_kwargs: dict = {
+                "api_key": self._api_key,
+                "timeout": self._timeout_seconds,
+            }
             if self._url:
                 client_kwargs["url"] = self._url
             else:
@@ -56,6 +65,33 @@ class QdrantVectorStore(VectorStoreInterface):
                 client_kwargs["port"] = self._port
             self._client = AsyncQdrantClient(**client_kwargs)
         return self._client
+
+    def _format_exception_chain(self, exc: Exception) -> str:
+        """Return a readable error string including nested causes."""
+        parts: list[str] = []
+        current: Exception | None = exc
+        depth = 0
+        while current is not None and depth < 5:
+            message = str(current).strip()
+            if not message:
+                message = repr(current)
+            parts.append(f"{type(current).__name__}: {message}")
+            current = current.__cause__
+            depth += 1
+        return " <- ".join(parts)
+
+    def _is_retryable_exception(self, exc: Exception) -> bool:
+        """Return True for transient timeout-style failures."""
+        current: Exception | None = exc
+        depth = 0
+        while current is not None and depth < 5:
+            name = type(current).__name__.lower()
+            message = str(current).lower()
+            if "timeout" in name or "timed out" in message or "timeout" in message:
+                return True
+            current = current.__cause__
+            depth += 1
+        return False
 
     def set_collection(self, collection_name: str) -> None:
         """Switch to a different collection."""
@@ -143,15 +179,38 @@ class QdrantVectorStore(VectorStoreInterface):
         if "artifact_type" not in payload:
             payload = {**payload, "artifact_type": "chunk"}
 
-        try:
-            await client.upsert(
-                collection_name=target_collection,
-                points=[
-                    models.PointStruct(id=chunk_id, vector=vector, payload=payload)
-                ],
-            )
-        except Exception as e:
-            raise VectorStoreError(f"Failed to upsert vector: {e}") from e
+        last_error: Exception | None = None
+        for attempt in range(1, self._write_retry_attempts + 1):
+            try:
+                await client.upsert(
+                    collection_name=target_collection,
+                    points=[
+                        models.PointStruct(id=chunk_id, vector=vector, payload=payload)
+                    ],
+                )
+                return
+            except Exception as e:
+                last_error = e
+                if attempt < self._write_retry_attempts and self._is_retryable_exception(e):
+                    delay = self._write_retry_backoff_seconds * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Qdrant upsert timeout (attempt %s/%s) for chunk '%s' in collection '%s'; retrying in %.2fs",
+                        attempt,
+                        self._write_retry_attempts,
+                        chunk_id,
+                        target_collection,
+                        delay,
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+                break
+
+        details = self._format_exception_chain(last_error or Exception("unknown error"))
+        raise VectorStoreError(
+            f"Failed to upsert vector in collection '{target_collection}' after "
+            f"{self._write_retry_attempts} attempt(s): {details}"
+        ) from last_error
 
     async def upsert_batch(
         self,
@@ -163,24 +222,48 @@ class QdrantVectorStore(VectorStoreInterface):
         await self.initialize(target_collection)
         client = await self._get_client()
 
-        try:
-            qdrant_points = [
-                models.PointStruct(
-                    id=chunk_id,
-                    vector=vector,
-                    payload=(
-                        payload if "artifact_type" in payload
-                        else {**payload, "artifact_type": "chunk"}
-                    ),
-                )
-                for chunk_id, vector, payload in points
-            ]
-            await client.upsert(
-                collection_name=target_collection,
-                points=qdrant_points,
+        qdrant_points = [
+            models.PointStruct(
+                id=chunk_id,
+                vector=vector,
+                payload=(
+                    payload if "artifact_type" in payload
+                    else {**payload, "artifact_type": "chunk"}
+                ),
             )
-        except Exception as e:
-            raise VectorStoreError(f"Failed to batch upsert vectors: {e}") from e
+            for chunk_id, vector, payload in points
+        ]
+
+        last_error: Exception | None = None
+        for attempt in range(1, self._write_retry_attempts + 1):
+            try:
+                await client.upsert(
+                    collection_name=target_collection,
+                    points=qdrant_points,
+                )
+                return
+            except Exception as e:
+                last_error = e
+                if attempt < self._write_retry_attempts and self._is_retryable_exception(e):
+                    delay = self._write_retry_backoff_seconds * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Qdrant batch upsert timeout (attempt %s/%s) for %s point(s) in collection '%s'; retrying in %.2fs",
+                        attempt,
+                        self._write_retry_attempts,
+                        len(points),
+                        target_collection,
+                        delay,
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+                break
+
+        details = self._format_exception_chain(last_error or Exception("unknown error"))
+        raise VectorStoreError(
+            f"Failed to batch upsert {len(points)} vector(s) in collection "
+            f"'{target_collection}' after {self._write_retry_attempts} attempt(s): {details}"
+        ) from last_error
 
     async def delete_by_file(self, file_path: str, collection_name: str | None = None) -> int:
         """Delete all vectors for a file, return count deleted."""

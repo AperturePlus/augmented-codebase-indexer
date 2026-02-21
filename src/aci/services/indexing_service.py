@@ -723,6 +723,7 @@ class IndexingService:
 
                 # Collect file info from this batch before writing vectors
                 batch_file_infos: dict[str, dict] = {}
+                batch_points: list[tuple[str, list[float], dict]] = []
 
                 # Time Qdrant upsert operations
                 qdrant_start = time.time()
@@ -739,16 +740,16 @@ class IndexingService:
                         "artifact_type": ArtifactType.CHUNK.value,
                         **chunk.metadata,
                     }
-                    await self._vector_store.upsert(
-                        chunk.chunk_id,
-                        embedding,
-                        payload,
-                        collection_name=collection_name,
-                    )
+                    batch_points.append((chunk.chunk_id, embedding, payload))
 
                     file_path = pending_info["file_path"] if pending_info else None
                     if file_path and file_path not in persisted_files:
                         batch_file_infos[file_path] = pending_info
+
+                await self._upsert_points(
+                    batch_points,
+                    collection_name=collection_name,
+                )
 
                 qdrant_duration_ms = (time.time() - qdrant_start) * 1000
 
@@ -818,6 +819,7 @@ class IndexingService:
                         actual=len(embeddings),
                     )
 
+                summary_points: list[tuple[str, list[float], dict]] = []
                 for summary, embedding in zip(batch, embeddings, strict=False):
                     payload = {
                         "file_path": summary.file_path,
@@ -828,18 +830,46 @@ class IndexingService:
                         "name": summary.name,
                         **summary.metadata,
                     }
-                    await self._vector_store.upsert(
-                        summary.artifact_id,
-                        embedding,
-                        payload,
-                        collection_name=collection_name,
-                    )
+                    summary_points.append((summary.artifact_id, embedding, payload))
+
+                await self._upsert_points(
+                    summary_points,
+                    collection_name=collection_name,
+                )
 
                 self._report_progress(
                     total_chunks + min(i + self._batch_size, total_summaries),
                     total_items,
                     f"Embedded {min(i + self._batch_size, total_summaries)} summaries",
                 )
+
+    async def _upsert_points(
+        self,
+        points: list[tuple[str, list[float], dict]],
+        *,
+        collection_name: str | None,
+    ) -> None:
+        """
+        Upsert points with best-effort batching.
+
+        Uses vector-store batch upsert when available, and falls back to
+        per-point upsert for compatibility with lightweight test doubles.
+        """
+        if not points:
+            return
+
+        upsert_batch = getattr(self._vector_store, "upsert_batch", None)
+        if callable(upsert_batch):
+            await upsert_batch(points, collection_name=collection_name)
+            return
+
+        for chunk_id, embedding, payload in points:
+            await self._vector_store.upsert(
+                chunk_id,
+                embedding,
+                payload,
+                collection_name=collection_name,
+            )
 
     async def update_incremental(
         self, root_path: Path, *, max_workers: int | None = None
