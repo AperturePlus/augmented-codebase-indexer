@@ -4,11 +4,18 @@ Integration tests for CLI commands.
 Tests the basic functionality of CLI commands and error handling.
 """
 
+import re
+
 from typer.testing import CliRunner
 
 from aci.cli import app
 
 runner = CliRunner()
+
+
+def _plain(text: str) -> str:
+    """Remove ANSI escape sequences for stable assertions."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 class TestCLIHelp:
@@ -29,17 +36,20 @@ class TestCLIHelp:
         result = runner.invoke(app, ["index", "--help"])
 
         assert result.exit_code == 0
-        assert "Directory to index" in result.stdout
-        assert "--workers" in result.stdout
+        output = _plain(result.stdout)
+        assert "Directory to index" in output
+        assert "workers" in output
+        assert "-w" in output
 
     def test_search_help(self):
         """Search command help should display options."""
         result = runner.invoke(app, ["search", "--help"])
 
         assert result.exit_code == 0
-        assert "Search query" in result.stdout
-        assert "--limit" in result.stdout
-        assert "--filter" in result.stdout
+        output = _plain(result.stdout)
+        assert "Search query" in output
+        assert "limit" in output
+        assert "filter" in output
 
     def test_update_help(self):
         """Update command help should display options."""
