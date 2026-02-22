@@ -1,6 +1,7 @@
 # Project ACI - Augmented Codebase Indexer
 
 Language: **English** | [简体中文](doc/README.zh-CN.md)
+Development governance: see [AGENTS.md](AGENTS.md)
 
 A Python tool for semantic code search with precise line-level location results.
 
