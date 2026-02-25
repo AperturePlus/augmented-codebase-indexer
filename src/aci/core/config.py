@@ -133,6 +133,7 @@ class IndexingConfig:
         default_factory=lambda: _get_default("indexing", "chunk_overlap_lines", 2)
     )
     max_workers: int = field(default_factory=lambda: _get_default("indexing", "max_workers", 4))
+    tokenizer: str = field(default_factory=lambda: _get_default("indexing", "tokenizer", "tiktoken"))
 
 
 @dataclass
@@ -226,6 +227,7 @@ class ACIConfig:
             "ACI_INDEXING_MAX_CHUNK_TOKENS": ("indexing", "max_chunk_tokens", int),
             "ACI_INDEXING_CHUNK_OVERLAP_LINES": ("indexing", "chunk_overlap_lines", int),
             "ACI_INDEXING_MAX_WORKERS": ("indexing", "max_workers", int),
+            "ACI_TOKENIZER": ("indexing", "tokenizer", str),
             "ACI_INDEXING_FILE_EXTENSIONS": (
                 "indexing",
                 "file_extensions",
