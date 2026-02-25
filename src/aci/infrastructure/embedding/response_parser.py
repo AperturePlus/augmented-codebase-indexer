@@ -73,9 +73,9 @@ def is_token_limit_error(status_code: int, response_text: str) -> bool:
     if status_code == 400:
         response_lower = response_text.lower()
         # Check for common token limit error patterns
-        if "token" in response_lower:
+        if any(pattern in response_lower for pattern in ["token", "input length", "context length"]):
             if any(pattern in response_lower for pattern in [
-                "limit", "8192", "exceed", "maximum", "many"
+                "limit", "8192", "exceed", "maximum", "many", "context length"
             ]):
                 return True
         # Check for SiliconFlow specific error code

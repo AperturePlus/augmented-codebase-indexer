@@ -42,6 +42,8 @@ from aci.core.file_scanner import (
     get_default_registry,
 )
 from aci.core.tokenizer import (
+    CharacterTokenizer,
+    SimpleTokenizer,
     TiktokenTokenizer,
     TokenizerInterface,
     get_default_tokenizer,
@@ -73,6 +75,8 @@ __all__ = [
     # Tokenizer
     "TokenizerInterface",
     "TiktokenTokenizer",
+    "CharacterTokenizer",
+    "SimpleTokenizer",
     "get_default_tokenizer",
     # Chunker
     "CodeChunk",

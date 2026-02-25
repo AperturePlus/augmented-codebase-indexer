@@ -5,6 +5,7 @@ Uses tiktoken library for accurate token counting compatible with OpenAI models.
 """
 
 from abc import ABC, abstractmethod
+from math import ceil
 
 import tiktoken
 
@@ -137,11 +138,90 @@ class TiktokenTokenizer(TokenizerInterface):
         return "\n".join(result_lines)
 
 
-def get_default_tokenizer() -> TokenizerInterface:
+class CharacterTokenizer(TokenizerInterface):
+    """Conservative tokenizer that estimates tokens using character length."""
+
+    def __init__(self, chars_per_token: int = 4):
+        if chars_per_token <= 0:
+            raise ValueError("chars_per_token must be greater than 0")
+        self._chars_per_token = chars_per_token
+
+    def count_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        return ceil(len(text) / self._chars_per_token)
+
+    def truncate_to_tokens(self, text: str, max_tokens: int) -> str:
+        if not text or max_tokens <= 0:
+            return ""
+
+        if self.count_tokens(text) <= max_tokens:
+            return text
+
+        lines = text.split("\n")
+        result_lines: list[str] = []
+        current_tokens = 0
+
+        for line in lines:
+            line_with_newline = f"\n{line}" if result_lines else line
+            line_tokens = self.count_tokens(line_with_newline)
+
+            if current_tokens + line_tokens > max_tokens:
+                break
+
+            result_lines.append(line)
+            current_tokens += line_tokens
+
+        return "\n".join(result_lines)
+
+
+class SimpleTokenizer(TokenizerInterface):
+    """Simple whitespace tokenizer primarily for generic non-BPE models."""
+
+    def count_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        return len(text.split())
+
+    def truncate_to_tokens(self, text: str, max_tokens: int) -> str:
+        if not text or max_tokens <= 0:
+            return ""
+
+        if self.count_tokens(text) <= max_tokens:
+            return text
+
+        lines = text.split("\n")
+        result_lines: list[str] = []
+        current_tokens = 0
+
+        for line in lines:
+            line_with_newline = f"\n{line}" if result_lines else line
+            line_tokens = self.count_tokens(line_with_newline)
+
+            if current_tokens + line_tokens > max_tokens:
+                break
+
+            result_lines.append(line)
+            current_tokens += line_tokens
+
+        return "\n".join(result_lines)
+
+
+def get_default_tokenizer(strategy: str = "tiktoken") -> TokenizerInterface:
     """
     Get the default tokenizer instance.
 
     Returns:
-        A TiktokenTokenizer with cl100k_base encoding.
+        A tokenizer implementation matching the configured strategy.
     """
-    return TiktokenTokenizer(encoding_name="cl100k_base")
+    normalized = strategy.strip().lower()
+    if normalized == "tiktoken":
+        return TiktokenTokenizer(encoding_name="cl100k_base")
+    if normalized == "character":
+        return CharacterTokenizer(chars_per_token=4)
+    if normalized == "simple":
+        return SimpleTokenizer()
+    raise ValueError(
+        f"Unsupported tokenizer strategy '{strategy}'. "
+        "Expected one of: tiktoken, character, simple"
+    )
