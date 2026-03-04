@@ -428,3 +428,74 @@ def test_fallback_disabled_raises_immediately(texts_count: int):
     assert call_count == 1, (
         f"Expected 1 API call when fallback disabled, got {call_count}"
     )
+
+
+@given(texts_count=st.integers(min_value=2, max_value=20))
+@settings(max_examples=50, deadline=None)
+def test_oversized_single_item_is_skipped_with_zero_vector(texts_count: int):
+    """
+    **Feature: embedding-batch-fallback, Property 5: Oversized Item Isolation**
+    **Validates: Requirements 1.3, 4.3**
+
+    *For any* input list containing one permanently oversized item,
+    the client SHALL continue processing remaining items and return a
+    zero-vector placeholder at the oversized item's position.
+    """
+
+    texts = [f"text_{i}" for i in range(texts_count)]
+    oversized_index = texts_count // 2
+
+    async def mock_post(url, headers, json):
+        """Mock HTTP POST that fails only for a specific oversized item."""
+        batch_texts = json.get("input", [])
+
+        # Simulate token limit failure only for the specific oversized item
+        if len(batch_texts) == 1 and batch_texts[0] == texts[oversized_index]:
+            mock_response = MagicMock()
+            mock_response.status_code = 413
+            mock_response.text = "Token limit exceeded"
+            return mock_response
+
+        # Force fallback into single-item processing if oversized item is in a larger batch
+        if texts[oversized_index] in batch_texts:
+            mock_response = MagicMock()
+            mock_response.status_code = 413
+            mock_response.text = "Token limit exceeded"
+            return mock_response
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [{"index": i, "embedding": [0.1] * 1536} for i in range(len(batch_texts))]
+        }
+        return mock_response
+
+    client = OpenAIEmbeddingClient(
+        api_url="https://api.example.com/embeddings",
+        api_key="test-key",
+        batch_size=8,
+        retry_config=RetryConfig(
+            max_retries=0,
+            enable_batch_fallback=True,
+            min_batch_size=1,
+        ),
+    )
+
+    async def run_test():
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = mock_post
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            return await client.embed_batch(texts)
+
+    embeddings = asyncio.run(run_test())
+
+    assert len(embeddings) == len(texts), (
+        f"Expected {len(texts)} embeddings, got {len(embeddings)}"
+    )
+    assert embeddings[oversized_index] == [0.0] * 1536, (
+        "Oversized item should be replaced with a zero vector placeholder"
+    )

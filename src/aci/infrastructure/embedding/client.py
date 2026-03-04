@@ -29,8 +29,9 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
         errors (HTTP 413) by reducing the batch size and retrying. This allows
         successful embedding generation even when some batches exceed the API's
         token limit. The batch size is halved on each retry until it reaches
-        the configured minimum. If a single item exceeds the limit, a
-        NonRetryableError is raised.
+        the configured minimum. If a single item still exceeds the limit at
+        minimum batch size, the item is skipped and a zero vector placeholder
+        is inserted to preserve output ordering.
     """
 
     def __init__(
@@ -115,7 +116,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
 
         Raises:
             EmbeddingClientError: If embedding generation fails after retries
-            NonRetryableError: If a single item exceeds token limits
+            NonRetryableError: If embedding generation encounters a non-recoverable error
         """
         if not texts:
             return []
@@ -139,7 +140,7 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
             List of embedding vectors in the same order as input texts
 
         Raises:
-            NonRetryableError: If a single item exceeds token limits
+            NonRetryableError: If embedding fails due to non-recoverable API errors
             EmbeddingClientError: If embedding fails after all retries
         """
         all_embeddings: list[list[float]] = []
@@ -162,14 +163,14 @@ class OpenAIEmbeddingClient(EmbeddingClientInterface):
 
                 # Check if we can reduce batch size further
                 if current_batch_size <= config.min_batch_size:
-                    # Single item exceeds token limit
-                    logger.error(
+                    # Single item exceeds token limit even at minimum batch size
+                    logger.warning(
                         f"Item at index {i} exceeds token limit, "
-                        f"cannot reduce batch further (min_batch_size={config.min_batch_size})"
+                        f"skipping with zero vector (min_batch_size={config.min_batch_size})"
                     )
-                    raise NonRetryableError(
-                        f"Single item at index {i} exceeds token limit: {e}"
-                    ) from e
+                    all_embeddings.append([0.0] * self._dimension)
+                    i += 1
+                    continue
 
                 # Reduce batch size and retry
                 new_batch_size = max(config.min_batch_size, current_batch_size // 2)
