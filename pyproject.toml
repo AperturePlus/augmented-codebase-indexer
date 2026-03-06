@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-# 运行时核心依赖（字母顺序）
+# runtime dependencies
 dependencies = [
     "fastapi>=0.111.0",
     "httpx>=0.25.0",
