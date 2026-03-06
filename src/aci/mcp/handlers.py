@@ -4,12 +4,16 @@ import json
 import os
 import time
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any
 
 from mcp.types import TextContent
 
-from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
+from aci.core.path_utils import (
+    RuntimePathResolutionResult,
+    get_collection_name_for_path,
+    resolve_runtime_path,
+    validate_indexable_path,
+)
 from aci.infrastructure.codebase_registry import best_effort_update_registry
 from aci.mcp.context import MCPContext
 from aci.mcp.services import MAX_WORKERS
@@ -46,6 +50,34 @@ def _get_repo_index_lock(ctx: MCPContext, repo_key: str) -> asyncio.Lock:
     return lock
 
 
+def _resolve_mcp_path(path_str: str, ctx: MCPContext) -> RuntimePathResolutionResult:
+    """Resolve a client-supplied path inside the MCP runtime."""
+    return resolve_runtime_path(
+        path_str,
+        workspace_root=ctx.workspace_root,
+        path_mappings=ctx.path_mappings,
+    )
+
+
+def _validate_mcp_directory_path(path_str: str, ctx: MCPContext) -> RuntimePathResolutionResult:
+    """Resolve and validate a directory path for MCP operations."""
+    resolution = _resolve_mcp_path(path_str, ctx)
+    if not resolution.valid:
+        return resolution
+
+    validation = validate_indexable_path(resolution.resolved_path)
+    if validation.valid:
+        return resolution
+
+    return RuntimePathResolutionResult(
+        valid=False,
+        original_path=path_str,
+        resolved_path=resolution.resolved_path,
+        mapped=resolution.mapped,
+        error_message=validation.error_message,
+    )
+
+
 async def call_tool(name: str, arguments: Any, ctx: MCPContext) -> list[TextContent]:
     """
     Handle tool calls from MCP clients.
@@ -76,16 +108,15 @@ async def _handle_index_codebase(arguments: dict, ctx: MCPContext) -> list[TextC
     start_time = time.time()
     _debug(f"index_codebase called with path: {path_str}, workers: {workers}")
 
-    # Validate path before any indexing operation
-    validation = validate_indexable_path(path_str)
-    if not validation.valid:
-        _debug(f"Path validation failed: {validation.error_message}")
+    resolution = _validate_mcp_directory_path(path_str, ctx)
+    if not resolution.valid:
+        _debug(f"Path validation failed: {resolution.error_message}")
         return [TextContent(
             type="text",
-            text=f"Error: {validation.error_message} (path: {path_str})"
+            text=f"Error: {resolution.error_message} (path: {path_str})"
         )]
 
-    path = Path(path_str)
+    path = resolution.resolved_path
     _debug(f"Resolved path: {path.resolve()}")
 
     cfg = ctx.config
@@ -127,9 +158,15 @@ async def _handle_index_codebase(arguments: dict, ctx: MCPContext) -> list[TextC
         collection_name=get_collection_name_for_path(path),
     )
 
-    response = {"status": "success", "total_files": result.total_files,
-        "total_chunks": result.total_chunks, "duration_seconds": result.duration_seconds,
-        "failed_files": result.failed_files[:10] if result.failed_files else []}
+    response = {
+        "status": "success",
+        "requested_path": path_str,
+        "indexed_path": str(path),
+        "total_files": result.total_files,
+        "total_chunks": result.total_chunks,
+        "duration_seconds": result.duration_seconds,
+        "failed_files": result.failed_files[:10] if result.failed_files else [],
+    }
     if result.failed_files and len(result.failed_files) > 10:
         response["failed_files_truncated"] = len(result.failed_files) - 10
     _debug(f"Result: files={result.total_files}, chunks={result.total_chunks}")
@@ -139,7 +176,7 @@ async def _handle_index_codebase(arguments: dict, ctx: MCPContext) -> list[TextC
 @_register("search_code")
 async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextContent]:
     query = arguments["query"]
-    search_path = Path(arguments["path"])
+    path_str = arguments["path"]
     limit = arguments.get("limit")
     file_filter = arguments.get("file_filter")
     use_rerank = arguments.get("use_rerank")
@@ -154,6 +191,12 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
     cfg = ctx.config
     search_service = ctx.search_service
     metadata_store = ctx.metadata_store
+
+    resolution = _validate_mcp_directory_path(path_str, ctx)
+    if not resolution.valid:
+        return [TextContent(type="text", text=f"Error: {resolution.error_message} (path: {path_str})")]
+
+    search_path = resolution.resolved_path
 
     # Use centralized repository resolution
     resolution = resolve_repository(search_path, metadata_store)
@@ -247,6 +290,8 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
 
     response = {
         "query": query,
+        "requested_path": path_str,
+        "resolved_path": str(search_path),
         "total_results": len(results),
         "results": formatted_results,
     }
@@ -265,12 +310,12 @@ async def _handle_get_status(arguments: dict, ctx: MCPContext) -> list[TextConte
     collection_name = None
 
     if path_str:
+        validation = _validate_mcp_directory_path(path_str, ctx)
+        if not validation.valid:
+            return [TextContent(type="text", text=f"Error: {validation.error_message} (path: {path_str})")]
+
         # Get collection name for the specific repository
-        search_path = Path(path_str)
-        if not search_path.exists():
-            return [TextContent(type="text", text=f"Error: Path does not exist: {search_path}")]
-        if not search_path.is_dir():
-            return [TextContent(type="text", text=f"Error: Path is not a directory: {search_path}")]
+        search_path = validation.resolved_path
 
         search_path_abs = str(search_path.resolve())
         index_info = metadata_store.get_index_info(search_path_abs)
@@ -318,7 +363,8 @@ async def _handle_get_status(arguments: dict, ctx: MCPContext) -> list[TextConte
     # Add repository info if a specific path was requested
     if path_str:
         response["repository"] = {
-            "path": path_str,
+            "requested_path": path_str,
+            "resolved_path": str(search_path),
             "collection_name": collection_name,
         }
 
@@ -331,16 +377,15 @@ async def _handle_update_index(arguments: dict, ctx: MCPContext) -> list[TextCon
     start_time = time.time()
     _debug(f"update_index called with path: {path_str}")
 
-    # Validate path before any indexing operation
-    validation = validate_indexable_path(path_str)
-    if not validation.valid:
-        _debug(f"Path validation failed: {validation.error_message}")
+    resolution = _validate_mcp_directory_path(path_str, ctx)
+    if not resolution.valid:
+        _debug(f"Path validation failed: {resolution.error_message}")
         return [TextContent(
             type="text",
-            text=f"Error: {validation.error_message} (path: {path_str})"
+            text=f"Error: {resolution.error_message} (path: {path_str})"
         )]
 
-    path = Path(path_str)
+    path = resolution.resolved_path
     _debug(f"Resolved path: {path.resolve()}")
 
     indexing_service = ctx.indexing_service
@@ -389,6 +434,8 @@ async def _handle_update_index(arguments: dict, ctx: MCPContext) -> list[TextCon
 
         response = {
             "status": "success",
+            "requested_path": path_str,
+            "updated_path": str(path),
             "new_files": result.new_files,
             "modified_files": result.modified_files,
             "deleted_files": result.deleted_files,

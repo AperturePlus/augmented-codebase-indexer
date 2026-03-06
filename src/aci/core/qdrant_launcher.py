@@ -6,8 +6,10 @@ start a local Docker container if Qdrant is not reachable.
 """
 
 import logging
+import os
 import socket
 import subprocess
+from pathlib import Path
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,11 @@ def _is_port_open(host: str, port: int) -> bool:
             return True
         except OSError:
             return False
+
+
+def _is_running_in_container() -> bool:
+    """Detect whether the current process is running inside a container."""
+    return Path("/.dockerenv").exists() or os.environ.get("container", "") == "docker"
 
 
 def ensure_qdrant_running(
@@ -59,6 +66,15 @@ def ensure_qdrant_running(
     if not is_local:
         logger.warning(
             "Qdrant endpoint %s:%s is unreachable; skipping Docker auto-start (non-local)",
+            check_host,
+            check_port,
+        )
+        return
+
+    if _is_running_in_container():
+        logger.warning(
+            "Qdrant endpoint %s:%s is unreachable; skipping Docker auto-start inside container. "
+            "Run Qdrant as a separate local container or set ACI_VECTOR_STORE_URL.",
             check_host,
             check_port,
         )
