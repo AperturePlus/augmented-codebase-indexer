@@ -83,6 +83,7 @@ aci shell
 ```
 
 This launches an interactive REPL (Read-Eval-Print Loop) with:
+
 - Command history (up/down arrows to navigate)
 - Tab completion for commands
 - Persistent history across sessions
@@ -142,6 +143,7 @@ Search queries support inline modifiers to filter results:
 | `exclude:<pattern>` | Alias for `-path:` | `exclude:fixtures` |
 
 Multiple exclusions can be combined:
+
 ```bash
 aci search "database query -path:tests -path:fixtures"
 ```
@@ -190,9 +192,9 @@ ACI supports the Model Context Protocol (MCP), allowing LLMs to directly interac
 }
 ```
 
-2. Ensure `.env` exists in the working directory with required settings (see `.env.example`)
+1. Ensure `.env` exists in the working directory with required settings (see `.env.example`)
 
-3. Use natural language to interact with your codebase:
+2. Use natural language to interact with your codebase:
    - "Index the current directory"
    - "Search for authentication functions"
    - "Show me the index status"
@@ -200,6 +202,7 @@ ACI supports the Model Context Protocol (MCP), allowing LLMs to directly interac
 ### Docker Sidecar Delivery
 
 For agentic coding tools, the recommended deployment model is a local Docker sidecar:
+
 - The code repository stays on the user's machine
 - The MCP server runs in a local container
 - Qdrant runs either as another local container or as a cloud endpoint
@@ -220,6 +223,7 @@ docker run -d --name aci-qdrant -p 6333:6333 qdrant/qdrant:latest
 Then configure your MCP client to launch ACI through Docker. A complete template is available in `mcp-config.docker.example.json`.
 
 Important runtime rules:
+
 - Mount the host source tree read-only into the container, for example `/workspace`
 - Persist `/data` as a Docker volume so `.aci/index.db` survives container restarts
 - Set `ACI_MCP_WORKSPACE_ROOT` for relative paths
@@ -273,6 +277,7 @@ REINDEX=1 uv run python scripts/measure_mcp_search.py
 ### Debug Mode
 
 Set `ACI_ENV=development` in `.env` to enable debug logging:
+
 ```
 ACI_ENV=development
 ```
@@ -304,6 +309,7 @@ cp .env.example .env
 ```
 
 Key settings:
+
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ACI_EMBEDDING_API_KEY` | API key for embedding service | Yes |
