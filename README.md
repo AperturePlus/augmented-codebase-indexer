@@ -197,6 +197,44 @@ ACI supports the Model Context Protocol (MCP), allowing LLMs to directly interac
    - "Search for authentication functions"
    - "Show me the index status"
 
+### Docker Sidecar Delivery
+
+For agentic coding tools, the recommended deployment model is a local Docker sidecar:
+- The code repository stays on the user's machine
+- The MCP server runs in a local container
+- Qdrant runs either as another local container or as a cloud endpoint
+- The embedding API uses the user's own API key
+
+Build the image:
+
+```bash
+docker build -t aci-mcp:latest .
+```
+
+If you want a local Qdrant container, start it separately:
+
+```bash
+docker run -d --name aci-qdrant -p 6333:6333 qdrant/qdrant:latest
+```
+
+Then configure your MCP client to launch ACI through Docker. A complete template is available in `mcp-config.docker.example.json`.
+
+Important runtime rules:
+- Mount the host source tree read-only into the container, for example `/workspace`
+- Persist `/data` as a Docker volume so `.aci/index.db` survives container restarts
+- Set `ACI_MCP_WORKSPACE_ROOT` for relative paths
+- Set `ACI_MCP_PATH_MAPPINGS` when the MCP client sends host-native absolute paths such as `D:\repo` or `/Users/alice/repo`
+
+Example mapping values:
+
+```text
+ACI_MCP_WORKSPACE_ROOT=/workspace
+ACI_MCP_PATH_MAPPINGS=D:\repo=/workspace
+ACI_MCP_PATH_MAPPINGS=/Users/alice/repo=/workspace
+```
+
+When path mappings are configured, MCP tools can accept the host path provided by the client and resolve it to the mounted container path automatically.
+
 ### Available MCP Tools
 
 | Tool | Description |
@@ -275,6 +313,8 @@ Key settings:
 | `ACI_VECTOR_STORE_API_KEY` | Qdrant API key (for Qdrant Cloud) | No |
 | `ACI_VECTOR_STORE_HOST` | Qdrant host | No (defaults to localhost) |
 | `ACI_VECTOR_STORE_PORT` | Qdrant port | No (defaults to 6333) |
+| `ACI_MCP_WORKSPACE_ROOT` | Base directory for relative MCP paths inside the container/runtime | No |
+| `ACI_MCP_PATH_MAPPINGS` | Host-to-container path prefix mappings for MCP, separated by `;` | No |
 | `ACI_SERVER_HOST` | HTTP server host | No (defaults to 0.0.0.0) |
 | `ACI_SERVER_PORT` | HTTP server port | No (defaults to 8000) |
 | `ACI_ENV` | Environment (development/production) | No |
@@ -284,3 +324,6 @@ See `.env.example` for the full list of options.
 The CLI and HTTP server will attempt to auto-start a local Qdrant Docker container only when
 targeting a local endpoint (`localhost` / `127.0.0.1`). For cloud Qdrant (`ACI_VECTOR_STORE_URL`),
 it will not run Docker.
+
+When ACI itself is running inside a container, it will not attempt to launch nested Docker for Qdrant.
+In that setup, run Qdrant as a separate local container or point `ACI_VECTOR_STORE_URL` to Qdrant Cloud.
