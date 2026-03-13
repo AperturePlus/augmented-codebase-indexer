@@ -173,6 +173,41 @@ def parse_runtime_path_mappings(raw_value: str | None) -> list[RuntimePathMappin
     return mappings
 
 
+def resolve_file_filter_pattern(
+    file_filter: str | None, indexed_root: str | Path | None
+) -> str | None:
+    """Resolve relative file-filter prefixes against the indexed root path.
+
+    Keeps broad wildcard-only patterns unchanged (e.g. ``*.py`` or ``**/*.py``),
+    but expands relative directory-prefixed patterns (e.g. ``src/**/*.py``)
+    to absolute patterns rooted at ``indexed_root``.
+    """
+    if not file_filter:
+        return file_filter
+    if indexed_root is None:
+        return file_filter
+
+    raw_filter = file_filter.strip()
+    if not raw_filter:
+        return raw_filter
+
+    # Already absolute (POSIX, Windows drive, or UNC path).
+    if raw_filter.startswith("/") or _looks_like_windows_path(raw_filter) or raw_filter.startswith("\\\\"):
+        return raw_filter
+
+    normalized = raw_filter.replace("\\", "/")
+    has_directory_prefix = "/" in normalized
+    starts_with_wildcard = normalized.startswith(("*", "?", "["))
+    if not has_directory_prefix or starts_with_wildcard:
+        return raw_filter
+
+    relative_filter = normalized.lstrip("./")
+    if not relative_filter:
+        return raw_filter
+
+    return str(Path(indexed_root).resolve() / Path(relative_filter))
+
+
 def _apply_runtime_path_mapping(
     path_str: str,
     path_mappings: Sequence[RuntimePathMapping],

@@ -22,7 +22,11 @@ from rich.progress import (
 from rich.syntax import Syntax
 from rich.table import Table
 
-from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
+from aci.core.path_utils import (
+    get_collection_name_for_path,
+    resolve_file_filter_pattern,
+    validate_indexable_path,
+)
 from aci.infrastructure import GrepSearcher
 from aci.infrastructure.codebase_registry import (
     CodebaseRegistryStore,
@@ -236,6 +240,7 @@ def search(
             console.print(f"[bold red]Error:[/bold red] {resolution.error_message}")
             raise typer.Exit(1)
         collection_name = resolution.collection_name
+        normalized_file_filter = resolve_file_filter_pattern(file_filter, resolution.indexed_root)
 
         # Use config values if not overridden by CLI
         actual_limit = limit if limit is not None else cfg.search.default_limit
@@ -291,7 +296,7 @@ def search(
                 search_service.search(
                     query=query,
                     limit=actual_limit,
-                    file_filter=file_filter,  # User-provided filter only
+                    file_filter=normalized_file_filter,
                     use_rerank=use_rerank and reranker is not None,
                     search_mode=search_mode,  # Pass search mode
                     collection_name=collection_name,  # Pass explicitly, no state mutation

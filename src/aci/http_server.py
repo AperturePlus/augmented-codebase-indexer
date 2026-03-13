@@ -11,7 +11,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from aci.core.path_utils import get_collection_name_for_path, is_system_directory
+from aci.core.path_utils import (
+    get_collection_name_for_path,
+    is_system_directory,
+    resolve_file_filter_pattern,
+)
 from aci.core.watch_config import WatchConfig
 from aci.infrastructure.codebase_registry import best_effort_update_registry
 from aci.infrastructure.file_watcher import FileWatcher
@@ -330,6 +334,7 @@ def create_app(
                 raise HTTPException(status_code=400, detail=resolution.error_message)
 
             collection_name = resolution.collection_name
+            normalized_file_filter = resolve_file_filter_pattern(file_filter, resolution.indexed_root)
 
             apply_rerank = cfg.search.use_rerank if use_rerank is None else use_rerank
 
@@ -363,7 +368,7 @@ def create_app(
             results = await search_service.search(
                 query=q,
                 limit=limit,
-                file_filter=file_filter,
+                file_filter=normalized_file_filter,
                 use_rerank=apply_rerank,
                 search_mode=search_mode,
                 collection_name=collection_name,

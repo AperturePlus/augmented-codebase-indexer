@@ -11,6 +11,7 @@ from mcp.types import TextContent
 from aci.core.path_utils import (
     RuntimePathResolutionResult,
     get_collection_name_for_path,
+    resolve_file_filter_pattern,
     resolve_runtime_path,
     validate_indexable_path,
 )
@@ -243,6 +244,8 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
                      f"Valid types: {', '.join(sorted(valid_artifact_types))}"
             )]
 
+    normalized_file_filter = resolve_file_filter_pattern(file_filter, indexed_root)
+
     # Request more results if filtering by subdirectory (to ensure enough after filtering)
     fetch_limit = limit * 3 if path_prefix_filter else limit
 
@@ -250,7 +253,7 @@ async def _handle_search_code(arguments: dict, ctx: MCPContext) -> list[TextCont
     results = await search_service.search(
         query=query,
         limit=fetch_limit,
-        file_filter=file_filter,
+        file_filter=normalized_file_filter,
         use_rerank=use_rerank,
         search_mode=search_mode,
         collection_name=collection_name,
