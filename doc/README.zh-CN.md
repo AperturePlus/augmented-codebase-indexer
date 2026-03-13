@@ -82,6 +82,7 @@ aci shell
 ```
 
 启动后会进入 REPL（Read-Eval-Print Loop），包含：
+
 - 命令历史（方向键上下浏览）
 - 命令自动补全（Tab）
 - 跨会话持久化历史
@@ -190,12 +191,52 @@ ACI 支持 Model Context Protocol（MCP），使 LLM 可直接调用你的代码
 }
 ```
 
-2. 确保工作目录存在 `.env` 且配置完整（参考 `../.env.example`）
+1. 确保工作目录存在 `.env` 且配置完整（参考 `../.env.example`）
 
-3. 可用自然语言与代码库交互，例如：
+2. 可用自然语言与代码库交互，例如：
    - “索引当前目录”
    - “搜索认证相关函数”
    - “查看当前索引状态”
+
+### 以 Docker Sidecar 交付 MCP
+
+对于 Agentic coding tools，推荐的交付模型是本地 Docker sidecar：
+
+- 代码仓库保留在用户机器上
+- MCP server 运行在本地容器里
+- Qdrant 可以是另一个本地容器，也可以是云端地址
+- Embedding API 使用用户自己的 key
+
+构建镜像：
+
+```bash
+docker build -t aci-mcp:latest .
+```
+
+如果使用本地 Qdrant 容器，单独启动它：
+
+```bash
+docker run -d --name aci-qdrant -p 6333:6333 qdrant/qdrant:latest
+```
+
+然后让 MCP 客户端通过 Docker 拉起 ACI。完整模板见 `mcp-config.docker.example.json`。
+
+运行时约定：
+
+- 把宿主机源码目录以只读方式挂载进容器，例如 `/workspace`
+- 把 `/data` 挂成 Docker volume，这样 `.aci/index.db` 不会随容器重建丢失
+- 相对路径场景设置 `ACI_MCP_WORKSPACE_ROOT`
+- 如果 MCP 客户端传的是宿主机绝对路径，例如 `D:\repo` 或 `/Users/alice/repo`，设置 `ACI_MCP_PATH_MAPPINGS`
+
+示例：
+
+```text
+ACI_MCP_WORKSPACE_ROOT=/workspace
+ACI_MCP_PATH_MAPPINGS=D:\repo=/workspace
+ACI_MCP_PATH_MAPPINGS=/Users/alice/repo=/workspace
+```
+
+配置后，MCP 工具可以接受客户端传来的宿主机路径，并自动解析到容器内的挂载路径。
 
 ### MCP 可用工具
 
@@ -277,6 +318,8 @@ cp .env.example .env
 | `ACI_VECTOR_STORE_API_KEY` | Qdrant API Key（Qdrant Cloud） | 否 |
 | `ACI_VECTOR_STORE_HOST` | Qdrant 主机地址 | 否（默认 localhost） |
 | `ACI_VECTOR_STORE_PORT` | Qdrant 端口 | 否（默认 6333） |
+| `ACI_MCP_WORKSPACE_ROOT` | MCP 在容器/运行时中解析相对路径时使用的基础目录 | 否 |
+| `ACI_MCP_PATH_MAPPINGS` | MCP 使用的宿主路径前缀到容器路径前缀映射，使用 `;` 分隔 | 否 |
 | `ACI_SERVER_HOST` | HTTP 服务主机地址 | 否（默认 0.0.0.0） |
 | `ACI_SERVER_PORT` | HTTP 服务端口 | 否（默认 8000） |
 | `ACI_ENV` | 运行环境（development/production） | 否 |
@@ -284,3 +327,5 @@ cp .env.example .env
 完整配置请查看 `../.env.example`。
 
 CLI 和 HTTP 服务仅在目标为本地端点（`localhost` / `127.0.0.1`）时尝试自动启动本地 Qdrant Docker 容器。若使用云端 Qdrant（`ACI_VECTOR_STORE_URL`），不会启动 Docker。
+
+当 ACI 自身运行在容器内时，不会再尝试嵌套启动 Docker 来拉起 Qdrant。此时请把 Qdrant 作为独立本地容器运行，或直接配置 `ACI_VECTOR_STORE_URL` 指向 Qdrant Cloud。

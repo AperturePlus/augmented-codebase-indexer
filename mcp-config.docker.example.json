@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "aci": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "HOST_SOURCE_PATH:/workspace:ro",
+        "-v",
+        "aci-mcp-data:/data",
+        "-e",
+        "ACI_MCP_WORKSPACE_ROOT=/workspace",
+        "-e",
+        "ACI_MCP_PATH_MAPPINGS=HOST_SOURCE_PATH=/workspace",
+        "-e",
+        "ACI_EMBEDDING_API_URL",
+        "-e",
+        "ACI_EMBEDDING_API_KEY",
+        "-e",
+        "ACI_EMBEDDING_MODEL",
+        "-e",
+        "ACI_EMBEDDING_DIMENSION",
+        "-e",
+        "ACI_VECTOR_STORE_URL=http://host.docker.internal:6333",
+        "-e",
+        "ACI_VECTOR_STORE_VECTOR_SIZE=1024",
+        "aci-mcp:latest"
+      ],
+      "env": {
+        "ACI_EMBEDDING_API_URL": "https://api.openai.com/v1/embeddings",
+        "ACI_EMBEDDING_API_KEY": "your_api_key_here",
+        "ACI_EMBEDDING_MODEL": "text-embedding-3-small",
+        "ACI_EMBEDDING_DIMENSION": "1024"
+      }
+    }
+  }
+}

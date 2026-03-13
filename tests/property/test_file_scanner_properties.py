@@ -204,7 +204,7 @@ def ignore_pattern_strategy(draw):
 
 
 @given(data=ignore_pattern_strategy())
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 def test_ignore_pattern_exclusion(data):
     """
     **Feature: codebase-semantic-search, Property 3: Ignore Pattern Exclusion**

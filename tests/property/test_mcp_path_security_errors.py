@@ -71,15 +71,20 @@ class TestErrorMessagePathInclusion:
         nonexistent_path = f"/nonexistent_test_dir_{dirname}/subdir"
         ctx = _create_mock_context()
 
+        def _assert_missing_path_error(error_text: str) -> None:
+            assert "Error" in error_text and nonexistent_path in error_text
+            assert (
+                "does not exist" in error_text
+                or "not accessible inside this runtime" in error_text
+            )
+
         result = run_async(_handle_index_codebase({"path": nonexistent_path}, ctx))
         assert len(result) == 1
-        error_text = result[0].text
-        assert "Error" in error_text and nonexistent_path in error_text and "does not exist" in error_text
+        _assert_missing_path_error(result[0].text)
 
         result = run_async(_handle_update_index({"path": nonexistent_path}, ctx))
         assert len(result) == 1
-        error_text = result[0].text
-        assert "Error" in error_text and nonexistent_path in error_text and "does not exist" in error_text
+        _assert_missing_path_error(result[0].text)
 
     @settings(max_examples=100, deadline=None)
     @given(

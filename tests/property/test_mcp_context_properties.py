@@ -170,6 +170,8 @@ def test_mcp_context_dataclass_has_expected_fields():
         "vector_store",
         "indexing_lock",
         "indexing_locks",
+        "workspace_root",
+        "path_mappings",
         "reranker",
         "embedding_client",
     }

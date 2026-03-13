@@ -78,6 +78,7 @@ def indexing_config_strategy(draw):
         max_chunk_tokens=draw(st.integers(min_value=100, max_value=32000)),
         chunk_overlap_lines=draw(st.integers(min_value=0, max_value=50)),
         max_workers=draw(st.integers(min_value=1, max_value=32)),
+        tokenizer=draw(st.sampled_from(["tiktoken", "character", "simple"])),
     )
 
 

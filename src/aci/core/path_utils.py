@@ -1,16 +1,17 @@
 """
 Path validation utilities for ACI.
 
-Provides centralized path validation, system directory detection,
-directory creation utilities, and collection name generation
-used across CLI, REPL, and HTTP layers.
+Provides centralized path validation, runtime path resolution,
+system directory detection, directory creation utilities, and
+collection name generation used across CLI, REPL, HTTP, and MCP layers.
 """
 
 import hashlib
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 @dataclass
@@ -22,6 +23,25 @@ class PathValidationResult:
         error_message: Human-readable error message if validation failed.
     """
     valid: bool
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class RuntimePathMapping:
+    """Maps a host-side path prefix to a runtime-accessible path prefix."""
+
+    source_prefix: str
+    target_prefix: Path
+
+
+@dataclass
+class RuntimePathResolutionResult:
+    """Result of resolving a user-supplied path inside the current runtime."""
+
+    valid: bool
+    original_path: str
+    resolved_path: Path | None = None
+    mapped: bool = False
     error_message: str | None = None
 
 
@@ -50,6 +70,218 @@ WINDOWS_SYSTEM_DIRS = frozenset([
     "system32",
     "syswow64",
 ])
+
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[a-zA-Z]:[\\/]")
+
+
+@dataclass(frozen=True)
+class _ComparablePath:
+    style: str
+    absolute: bool
+    normalized_parts: tuple[str, ...]
+    raw_parts: tuple[str, ...]
+
+
+def _looks_like_windows_path(path_str: str) -> bool:
+    """Return True when a string looks like a Windows absolute path."""
+    return bool(_WINDOWS_ABSOLUTE_PATH_RE.match(path_str)) or path_str.startswith("\\\\")
+
+
+def _split_windows_parts(path_str: str) -> _ComparablePath:
+    """Split a Windows path into comparable parts."""
+    pure_path = PureWindowsPath(path_str)
+    raw_parts: list[str] = []
+
+    if pure_path.drive:
+        raw_parts.append(pure_path.drive)
+
+    anchor = pure_path.anchor.rstrip("\\/")
+    for part in pure_path.parts:
+        cleaned = part.rstrip("\\/")
+        if not cleaned or cleaned == anchor or cleaned == pure_path.drive:
+            continue
+        raw_parts.append(cleaned)
+
+    return _ComparablePath(
+        style="windows",
+        absolute=pure_path.is_absolute(),
+        normalized_parts=tuple(part.lower() for part in raw_parts),
+        raw_parts=tuple(raw_parts),
+    )
+
+
+def _split_posix_parts(path_str: str) -> _ComparablePath:
+    """Split a POSIX path into comparable parts."""
+    pure_path = PurePosixPath(path_str.replace("\\", "/"))
+    parts = [part for part in pure_path.parts if part not in ("", ".")]
+    if pure_path.is_absolute():
+        raw_parts = tuple(["/"] + [part for part in parts if part != "/"])
+    else:
+        raw_parts = tuple(part for part in parts if part != "/")
+
+    return _ComparablePath(
+        style="posix",
+        absolute=pure_path.is_absolute(),
+        normalized_parts=raw_parts,
+        raw_parts=raw_parts,
+    )
+
+
+def _to_comparable_path(path_str: str) -> _ComparablePath:
+    """Convert a raw path string to comparable parts."""
+    if _looks_like_windows_path(path_str):
+        return _split_windows_parts(path_str)
+    return _split_posix_parts(path_str)
+
+
+def parse_runtime_path_mappings(raw_value: str | None) -> list[RuntimePathMapping]:
+    """Parse semicolon-separated runtime path mappings.
+
+    Expected format:
+        source_prefix=target_prefix;source_prefix=target_prefix
+
+    Examples:
+        D:\\=/host/d;/Users/alice=/host/users/alice
+        /=/hostfs
+    """
+    if raw_value is None or not raw_value.strip():
+        return []
+
+    mappings: list[RuntimePathMapping] = []
+    for item in raw_value.split(";"):
+        pair = item.strip()
+        if not pair:
+            continue
+        if "=" not in pair:
+            raise ValueError(
+                "Invalid path mapping entry. Expected 'source=target' pairs separated by ';'."
+            )
+
+        source_prefix, target_prefix = pair.split("=", 1)
+        source_prefix = source_prefix.strip()
+        target_prefix = target_prefix.strip()
+        if not source_prefix or not target_prefix:
+            raise ValueError("Path mapping source and target must be non-empty.")
+
+        mappings.append(
+            RuntimePathMapping(
+                source_prefix=source_prefix,
+                target_prefix=Path(target_prefix),
+            )
+        )
+
+    return mappings
+
+
+def _apply_runtime_path_mapping(
+    path_str: str,
+    path_mappings: Sequence[RuntimePathMapping],
+) -> Path | None:
+    """Apply the first matching runtime path mapping."""
+    input_path = _to_comparable_path(path_str)
+
+    for mapping in path_mappings:
+        source = _to_comparable_path(mapping.source_prefix)
+        if input_path.style != source.style or input_path.absolute != source.absolute:
+            continue
+        if len(input_path.normalized_parts) < len(source.normalized_parts):
+            continue
+        if input_path.normalized_parts[: len(source.normalized_parts)] != source.normalized_parts:
+            continue
+
+        target_path = mapping.target_prefix
+        remainder = input_path.raw_parts[len(source.raw_parts) :]
+        for part in remainder:
+            target_path = target_path / part
+        return target_path
+
+    return None
+
+
+def _resolve_mapped_runtime_path(
+    original_path: str,
+    path_mappings: Sequence[RuntimePathMapping],
+) -> RuntimePathResolutionResult | None:
+    """Resolve a path via configured runtime mappings when available."""
+    mapped_path = _apply_runtime_path_mapping(original_path, path_mappings)
+    if mapped_path is None:
+        return None
+
+    if mapped_path.exists():
+        return RuntimePathResolutionResult(
+            valid=True,
+            original_path=original_path,
+            resolved_path=mapped_path.resolve(),
+            mapped=True,
+        )
+
+    return RuntimePathResolutionResult(
+        valid=False,
+        original_path=original_path,
+        error_message=(
+            f"Path '{original_path}' is not accessible inside this runtime. "
+            f"Mapped to '{mapped_path}', but that path does not exist. "
+            "Check the container bind mount and ACI_MCP_PATH_MAPPINGS."
+        ),
+    )
+
+
+def resolve_runtime_path(
+    path: str | Path,
+    workspace_root: str | Path | None = None,
+    path_mappings: Sequence[RuntimePathMapping] | None = None,
+) -> RuntimePathResolutionResult:
+    """Resolve a user-supplied path within the current runtime environment."""
+    original_path = str(path)
+    path_str = original_path.strip()
+    mappings = path_mappings or ()
+
+    if not path_str:
+        return RuntimePathResolutionResult(
+            valid=False,
+            original_path=original_path,
+            error_message="Path cannot be empty",
+        )
+
+    is_windows_absolute = _looks_like_windows_path(path_str)
+    is_posix_absolute = path_str.startswith("/")
+    is_absolute = is_windows_absolute or is_posix_absolute
+
+    if not is_absolute:
+        base_dir = Path(workspace_root) if workspace_root is not None else Path.cwd()
+        return RuntimePathResolutionResult(
+            valid=True,
+            original_path=original_path,
+            resolved_path=(base_dir / path_str).resolve(),
+            mapped=workspace_root is not None,
+        )
+
+    mapped_resolution = _resolve_mapped_runtime_path(original_path, mappings)
+    if mapped_resolution is not None:
+        return mapped_resolution
+
+    if is_windows_absolute and sys.platform == "win32":
+        return RuntimePathResolutionResult(
+            valid=True,
+            original_path=original_path,
+            resolved_path=Path(path_str),
+        )
+
+    if is_posix_absolute and sys.platform != "win32":
+        return RuntimePathResolutionResult(
+            valid=True,
+            original_path=original_path,
+            resolved_path=Path(path_str),
+        )
+
+    return RuntimePathResolutionResult(
+        valid=False,
+        original_path=original_path,
+        error_message=(
+            f"Path '{original_path}' is not accessible inside this runtime. "
+            "Configure ACI_MCP_PATH_MAPPINGS or mount the host path into the container."
+        ),
+    )
 
 
 def is_system_directory(path: Path) -> bool:

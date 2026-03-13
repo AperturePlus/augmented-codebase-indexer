@@ -6,10 +6,12 @@ replacing the Service Locator pattern with explicit dependency injection.
 """
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from aci.core.config import ACIConfig
+from aci.core.path_utils import RuntimePathMapping, parse_runtime_path_mappings
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.metadata_store import IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
@@ -43,6 +45,8 @@ class MCPContext:
     vector_store: VectorStoreInterface
     indexing_lock: asyncio.Lock
     indexing_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+    workspace_root: Path | None = None
+    path_mappings: tuple[RuntimePathMapping, ...] = field(default_factory=tuple)
     # These are stored for cleanup purposes only
     reranker: RerankerInterface | None = None
     embedding_client: EmbeddingClientInterface | None = None
@@ -64,6 +68,15 @@ def create_mcp_context() -> MCPContext:
     """
     from aci.infrastructure.grep_searcher import GrepSearcher
     from aci.services.container import create_services
+
+    workspace_root_env = (
+        os.environ.get("ACI_MCP_WORKSPACE_ROOT") or os.environ.get("ACI_WORKSPACE_ROOT")
+    )
+    raw_path_mappings = (
+        os.environ.get("ACI_MCP_PATH_MAPPINGS") or os.environ.get("ACI_PATH_MAPPINGS")
+    )
+    workspace_root = Path(workspace_root_env).resolve() if workspace_root_env else None
+    path_mappings = tuple(parse_runtime_path_mappings(raw_path_mappings))
 
     # Create infrastructure services using centralized factory
     services = create_services()
@@ -98,6 +111,8 @@ def create_mcp_context() -> MCPContext:
         metadata_store=services.metadata_store,
         vector_store=services.vector_store,
         indexing_lock=asyncio.Lock(),
+        workspace_root=workspace_root,
+        path_mappings=path_mappings,
         reranker=services.reranker,
         embedding_client=services.embedding_client,
     )

@@ -179,6 +179,7 @@ token_limit_patterns = [
     "token limit exceeded",
     "maximum token limit",
     "too many tokens",
+    "the input length exceeds the context length",
     '{"code":20042,"message":"input must have less than 8192 tokens"}',
 ]
 
