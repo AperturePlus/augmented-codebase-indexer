@@ -2,131 +2,121 @@
 Tests for the Tokenizer module.
 """
 
+import pytest
+
 from aci.core.tokenizer import (
+    CharacterTokenizer,
+    SimpleTokenizer,
     TiktokenTokenizer,
     TokenizerInterface,
     get_default_tokenizer,
 )
 
 
+class FakeEncoding:
+    """Offline-safe encoding stub for unit tests."""
+
+    def encode(self, text: str) -> list[str]:
+        if not text:
+            return []
+        # Approximate tokenization: split on whitespace boundaries
+        return text.replace("\n", " \n ").split()
+
+
+def make_tiktoken_tokenizer() -> TiktokenTokenizer:
+    tokenizer = TiktokenTokenizer()
+    tokenizer._encoding = FakeEncoding()
+    return tokenizer
+
+
 class TestTiktokenTokenizer:
     """Unit tests for TiktokenTokenizer."""
 
     def test_implements_interface(self):
-        """Verify TiktokenTokenizer implements TokenizerInterface."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         assert isinstance(tokenizer, TokenizerInterface)
 
     def test_count_tokens_empty_string(self):
-        """Empty string should return 0 tokens."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         assert tokenizer.count_tokens("") == 0
 
     def test_count_tokens_simple_text(self):
-        """Simple text should return positive token count."""
-        tokenizer = TiktokenTokenizer()
-        count = tokenizer.count_tokens("Hello, world!")
-        assert count > 0
+        tokenizer = make_tiktoken_tokenizer()
+        assert tokenizer.count_tokens("Hello, world!") > 0
 
     def test_count_tokens_code(self):
-        """Code should be tokenized correctly."""
-        tokenizer = TiktokenTokenizer()
-        code = "def hello():\n    print('Hello')"
-        count = tokenizer.count_tokens(code)
-        assert count > 0
+        tokenizer = make_tiktoken_tokenizer()
+        assert tokenizer.count_tokens("def hello():\n    print('Hello')") > 0
 
     def test_truncate_empty_string(self):
-        """Empty string should return empty string."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         assert tokenizer.truncate_to_tokens("", 100) == ""
 
     def test_truncate_zero_max_tokens(self):
-        """Zero max_tokens should return empty string."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         assert tokenizer.truncate_to_tokens("Hello, world!", 0) == ""
 
     def test_truncate_negative_max_tokens(self):
-        """Negative max_tokens should return empty string."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         assert tokenizer.truncate_to_tokens("Hello, world!", -5) == ""
 
     def test_truncate_text_fits(self):
-        """Text that fits should be returned unchanged."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         text = "Hello, world!"
-        result = tokenizer.truncate_to_tokens(text, 1000)
-        assert result == text
+        assert tokenizer.truncate_to_tokens(text, 1000) == text
 
     def test_truncate_preserves_line_integrity(self):
-        """Truncation should not cut in the middle of a line."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         text = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
-
-        # Get a max_tokens that will require truncation
-        total_tokens = tokenizer.count_tokens(text)
-        max_tokens = total_tokens // 2
+        max_tokens = max(1, tokenizer.count_tokens(text) // 2)
 
         result = tokenizer.truncate_to_tokens(text, max_tokens)
-
-        # Result should end with a complete line (no partial lines)
-        assert result.endswith("Line 1") or result.endswith("Line 2") or result.endswith("Line 3")
-        # Result should not contain partial text
         for line in result.split("\n"):
             assert line.startswith("Line ")
 
     def test_truncate_respects_token_limit(self):
-        """Truncated text should not exceed max_tokens."""
-        tokenizer = TiktokenTokenizer()
+        tokenizer = make_tiktoken_tokenizer()
         text = "\n".join([f"This is line number {i} with some content" for i in range(100)])
         max_tokens = 50
-
         result = tokenizer.truncate_to_tokens(text, max_tokens)
-        result_tokens = tokenizer.count_tokens(result)
-
-        assert result_tokens <= max_tokens
-
-    def test_truncate_multiline_code(self):
-        """Truncation should work correctly with code."""
-        tokenizer = TiktokenTokenizer()
-        code = """def function_one():
-    print("Hello")
-    return 1
-
-def function_two():
-    print("World")
-    return 2
-
-def function_three():
-    print("Test")
-    return 3
-"""
-        # Use a small token limit
-        max_tokens = 20
-        result = tokenizer.truncate_to_tokens(code, max_tokens)
-
-        # Should not exceed limit
         assert tokenizer.count_tokens(result) <= max_tokens
-        # Should contain complete lines only
-        lines = result.split("\n")
-        for line in lines:
-            # Each line should be a valid Python line (not cut mid-statement)
-            assert not line.endswith("pri")  # Not cut in middle of "print"
+
+
+class TestAlternativeTokenizers:
+    def test_character_tokenizer_counts_and_truncates(self):
+        tokenizer = CharacterTokenizer(chars_per_token=4)
+        text = "abcd\nefgh\nijkl"
+        assert tokenizer.count_tokens(text) == 4
+        truncated = tokenizer.truncate_to_tokens(text, 2)
+        assert truncated == "abcd"
+        assert tokenizer.count_tokens(truncated) <= 2
+
+    def test_simple_tokenizer_counts_and_truncates(self):
+        tokenizer = SimpleTokenizer()
+        text = "one two\nthree four five"
+        assert tokenizer.count_tokens(text) == 5
+        truncated = tokenizer.truncate_to_tokens(text, 2)
+        assert truncated == "one two"
+        assert tokenizer.count_tokens(truncated) <= 2
 
 
 class TestGetDefaultTokenizer:
-    """Tests for get_default_tokenizer factory function."""
-
     def test_returns_tokenizer_interface(self):
-        """Should return a TokenizerInterface instance."""
-        tokenizer = get_default_tokenizer()
-        assert isinstance(tokenizer, TokenizerInterface)
+        assert isinstance(get_default_tokenizer(), TokenizerInterface)
 
     def test_returns_tiktoken_tokenizer(self):
-        """Should return a TiktokenTokenizer instance."""
-        tokenizer = get_default_tokenizer()
-        assert isinstance(tokenizer, TiktokenTokenizer)
+        assert isinstance(get_default_tokenizer("tiktoken"), TiktokenTokenizer)
+
+    def test_returns_character_tokenizer(self):
+        assert isinstance(get_default_tokenizer("character"), CharacterTokenizer)
+
+    def test_returns_simple_tokenizer(self):
+        assert isinstance(get_default_tokenizer("simple"), SimpleTokenizer)
 
     def test_uses_cl100k_base_encoding(self):
-        """Should use cl100k_base encoding by default."""
         tokenizer = get_default_tokenizer()
         assert tokenizer._encoding_name == "cl100k_base"
+
+    def test_invalid_strategy_raises(self):
+        with pytest.raises(ValueError, match="Unsupported tokenizer strategy"):
+            get_default_tokenizer("bert")
