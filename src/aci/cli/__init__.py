@@ -55,7 +55,12 @@ app = typer.Typer(
     context_settings={"color": False},
 )
 
-def get_services():
+def _project_metadata_db_path(path: Path) -> Path:
+    """Return the metadata DB path scoped to a project root."""
+    return path.resolve() / ".aci" / "index.db"
+
+
+def get_services(metadata_db_path: Path | None = None):
     """
     Initialize services from .env with config-driven settings.
 
@@ -67,7 +72,7 @@ def get_services():
         Tuple of (config, embedding_client, vector_store, metadata_store,
                   file_scanner, chunker, reranker)
     """
-    container = create_services()
+    container = create_services(metadata_db_path=metadata_db_path)
     return (
         container.config,
         container.embedding_client,
@@ -104,7 +109,7 @@ def index(
             file_scanner,
             chunker,
             reranker,
-        ) = get_services()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(path))
 
         # Use config workers if not overridden by CLI
         actual_workers = workers if workers is not None else cfg.indexing.max_workers
@@ -221,6 +226,9 @@ def search(
 ):
     """Search the indexed codebase."""
     try:
+        # Determine the search base path
+        search_base = path if path is not None else Path.cwd()
+
         (
             cfg,
             embedding_client,
@@ -229,10 +237,7 @@ def search(
             file_scanner,
             chunker,
             config_reranker,
-        ) = get_services()
-
-        # Determine the search base path
-        search_base = path if path is not None else Path.cwd()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(search_base))
 
         # Use centralized repository resolution for path validation and collection name
         resolution = resolve_repository(search_base, metadata_store)
@@ -380,7 +385,7 @@ def update(
             file_scanner,
             chunker,
             reranker,
-        ) = get_services()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(path))
 
         with Progress(
             SpinnerColumn(),
