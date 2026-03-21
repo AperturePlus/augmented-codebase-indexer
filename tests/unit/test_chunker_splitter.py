@@ -7,7 +7,7 @@ import pytest
 from aci.core.ast_parser import ASTNode, TreeSitterParser
 from aci.core.chunker import Chunker, SmartChunkSplitter
 from aci.core.file_scanner import ScannedFile
-from aci.core.tokenizer import get_default_tokenizer
+from aci.core.tokenizer import CharacterTokenizer
 
 
 class TestSmartChunkSplitter:
@@ -15,7 +15,7 @@ class TestSmartChunkSplitter:
 
     @pytest.fixture
     def tokenizer(self):
-        return get_default_tokenizer()
+        return CharacterTokenizer()
 
     @pytest.fixture
     def splitter(self, tokenizer):
@@ -195,7 +195,7 @@ class TestChunkerWithSmartSplitter:
 
     @pytest.fixture
     def tokenizer(self):
-        return get_default_tokenizer()
+        return CharacterTokenizer()
 
     @pytest.fixture
     def parser(self):

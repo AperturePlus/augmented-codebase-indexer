@@ -2,7 +2,9 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from aci.core.chunker import create_chunker
 from aci.core.file_scanner import FileScanner
+from aci.core.tokenizer import CharacterTokenizer
 from aci.infrastructure.fakes import InMemoryVectorStore, LocalEmbeddingClient
 from aci.infrastructure.metadata_store import IndexMetadataStore
 from aci.services.indexing_service import IndexingService
@@ -47,6 +49,7 @@ def test_update_incremental_does_not_delete_other_repo_metadata():
             vector_store=vector_store,
             metadata_store=metadata_store,
             file_scanner=file_scanner,
+            chunker=create_chunker(tokenizer=CharacterTokenizer()),
             max_workers=1,
         )
 
