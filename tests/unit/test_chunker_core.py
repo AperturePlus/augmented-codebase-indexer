@@ -17,7 +17,7 @@ from aci.core.chunker import (
     get_import_registry,
 )
 from aci.core.file_scanner import ScannedFile
-from aci.core.tokenizer import get_default_tokenizer
+from aci.core.tokenizer import CharacterTokenizer
 
 
 class TestCodeChunk:
@@ -143,7 +143,7 @@ class TestChunker:
 
     @pytest.fixture
     def tokenizer(self):
-        return get_default_tokenizer()
+        return CharacterTokenizer()
 
     @pytest.fixture
     def chunker(self, tokenizer):

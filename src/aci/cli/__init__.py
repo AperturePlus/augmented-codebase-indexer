@@ -22,7 +22,11 @@ from rich.progress import (
 from rich.syntax import Syntax
 from rich.table import Table
 
-from aci.core.path_utils import get_collection_name_for_path, validate_indexable_path
+from aci.core.path_utils import (
+    get_collection_name_for_path,
+    resolve_file_filter_pattern,
+    validate_indexable_path,
+)
 from aci.infrastructure import GrepSearcher
 from aci.infrastructure.codebase_registry import (
     CodebaseRegistryStore,
@@ -51,7 +55,12 @@ app = typer.Typer(
     context_settings={"color": False},
 )
 
-def get_services():
+def _project_metadata_db_path(path: Path) -> Path:
+    """Return the metadata DB path scoped to a project root."""
+    return path.resolve() / ".aci" / "index.db"
+
+
+def get_services(metadata_db_path: Path | None = None):
     """
     Initialize services from .env with config-driven settings.
 
@@ -63,7 +72,7 @@ def get_services():
         Tuple of (config, embedding_client, vector_store, metadata_store,
                   file_scanner, chunker, reranker)
     """
-    container = create_services()
+    container = create_services(metadata_db_path=metadata_db_path)
     return (
         container.config,
         container.embedding_client,
@@ -100,7 +109,7 @@ def index(
             file_scanner,
             chunker,
             reranker,
-        ) = get_services()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(path))
 
         # Use config workers if not overridden by CLI
         actual_workers = workers if workers is not None else cfg.indexing.max_workers
@@ -217,6 +226,9 @@ def search(
 ):
     """Search the indexed codebase."""
     try:
+        # Determine the search base path
+        search_base = path if path is not None else Path.cwd()
+
         (
             cfg,
             embedding_client,
@@ -225,10 +237,7 @@ def search(
             file_scanner,
             chunker,
             config_reranker,
-        ) = get_services()
-
-        # Determine the search base path
-        search_base = path if path is not None else Path.cwd()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(search_base))
 
         # Use centralized repository resolution for path validation and collection name
         resolution = resolve_repository(search_base, metadata_store)
@@ -236,6 +245,7 @@ def search(
             console.print(f"[bold red]Error:[/bold red] {resolution.error_message}")
             raise typer.Exit(1)
         collection_name = resolution.collection_name
+        normalized_file_filter = resolve_file_filter_pattern(file_filter, resolution.indexed_root)
 
         # Use config values if not overridden by CLI
         actual_limit = limit if limit is not None else cfg.search.default_limit
@@ -291,7 +301,7 @@ def search(
                 search_service.search(
                     query=query,
                     limit=actual_limit,
-                    file_filter=file_filter,  # User-provided filter only
+                    file_filter=normalized_file_filter,
                     use_rerank=use_rerank and reranker is not None,
                     search_mode=search_mode,  # Pass search mode
                     collection_name=collection_name,  # Pass explicitly, no state mutation
@@ -375,7 +385,7 @@ def update(
             file_scanner,
             chunker,
             reranker,
-        ) = get_services()
+        ) = get_services(metadata_db_path=_project_metadata_db_path(path))
 
         with Progress(
             SpinnerColumn(),

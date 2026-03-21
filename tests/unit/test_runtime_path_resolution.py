@@ -107,3 +107,28 @@ def test_mcp_index_codebase_uses_resolved_runtime_path(tmp_path: Path):
     payload = json.loads(result[0].text)
     assert payload["requested_path"] == r"D:\workspace"
     assert payload["indexed_path"] == str(mounted_repo.resolve())
+
+
+def test_resolve_file_filter_pattern_keeps_wildcard_only_pattern(tmp_path: Path):
+    from aci.core.path_utils import resolve_file_filter_pattern
+
+    resolved = resolve_file_filter_pattern("**/*.tsx", tmp_path)
+
+    assert resolved == "**/*.tsx"
+
+
+def test_resolve_file_filter_pattern_expands_relative_prefixed_pattern(tmp_path: Path):
+    from aci.core.path_utils import resolve_file_filter_pattern
+
+    resolved = resolve_file_filter_pattern("apps/web/**/*.tsx", tmp_path)
+
+    assert resolved == str(tmp_path.resolve() / "apps/web/**/*.tsx")
+
+
+def test_resolve_file_filter_pattern_keeps_absolute_pattern(tmp_path: Path):
+    from aci.core.path_utils import resolve_file_filter_pattern
+
+    absolute_pattern = str(tmp_path / "apps/**/*.tsx")
+    resolved = resolve_file_filter_pattern(absolute_pattern, "/another/root")
+
+    assert resolved == absolute_pattern
