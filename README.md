@@ -1,5 +1,9 @@
 # Project ACI - Augmented Codebase Indexer
 
+[![Tests](https://github.com/AperturePlus/augmented-codebase-indexer/actions/workflows/test.yml/badge.svg)](https://github.com/AperturePlus/augmented-codebase-indexer/actions/workflows/test.yml)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![linux.do](https://img.shields.io/badge/linux.do-%E6%8E%A8%E5%B9%BF%E9%93%BE%E6%8E%A5-orange)](https://linux.do)
+
 Language: **English** | [简体中文](doc/README.zh-CN.md)
 Development governance: see [AGENTS.md](AGENTS.md)
 
