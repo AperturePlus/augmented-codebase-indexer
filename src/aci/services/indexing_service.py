@@ -9,6 +9,8 @@ operations (AST parsing, chunking) and async for IO-intensive operations
 (embedding API calls, vector storage).
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import multiprocessing
@@ -20,6 +22,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aci.core.ast_parser import ASTNode, ASTParserInterface, TreeSitterParser
 from aci.core.chunker import ChunkerConfig, ChunkerInterface, CodeChunk, create_chunker
@@ -33,6 +36,9 @@ from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services import indexing_worker
 from aci.services.indexing_models import IndexingError, IndexingResult, ProcessedFile
 from aci.services.metrics_collector import MetricsCollector
+
+if TYPE_CHECKING:
+    from aci.services.graph_builder import GraphBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +63,7 @@ class IndexingService:
         max_workers: int = 4,
         progress_callback: Callable[[int, int, str], None] | None = None,
         metrics_collector: MetricsCollector | None = None,
+        graph_builder: GraphBuilder | None = None,
     ):
         """
         Initialize the indexing service.
@@ -72,6 +79,7 @@ class IndexingService:
             max_workers: Number of parallel workers for file processing
             progress_callback: Optional callback(current, total, message)
             metrics_collector: Optional collector for indexing metrics
+            graph_builder: Optional graph builder for code-relationship graphs
         """
         self._embedding_client = embedding_client
         self._vector_store = vector_store
@@ -83,6 +91,7 @@ class IndexingService:
         self._max_workers = max_workers
         self._progress_callback = progress_callback
         self._metrics_collector = metrics_collector
+        self._graph_builder = graph_builder
 
         # Extract chunker config for parallel workers
         self._chunker_config = self._extract_chunker_config(self._chunker)
@@ -365,6 +374,11 @@ class IndexingService:
         # This runs in the main process since SummaryGenerator is not serializable
         all_summaries = self._generate_summaries_for_files(successfully_processed_files)
 
+        # Post-processing: Graph building for successfully processed files
+        # Runs in the main process since SQLite connections cannot cross process boundaries
+        if self._graph_builder is not None:
+            await self._build_graph_for_files(successfully_processed_files)
+
         return all_chunks, all_summaries, result
 
     @staticmethod
@@ -437,6 +451,25 @@ class IndexingService:
                     all_chunks.extend(processed.chunks)
                     all_summaries.extend(processed.summaries)
                     result.total_files += 1
+
+                    # Graph building (sequential — runs inline)
+                    if self._graph_builder is not None:
+                        try:
+                            ast_nodes = []
+                            if self._ast_parser.supports_language(scanned_file.language):
+                                ast_nodes = self._ast_parser.parse(
+                                    scanned_file.content, scanned_file.language
+                                )
+                            await self._graph_builder.process_file(
+                                file_path=str(scanned_file.path),
+                                content=scanned_file.content,
+                                language=scanned_file.language,
+                                ast_nodes=ast_nodes,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Graph building failed for {scanned_file.path}: {e}"
+                            )
 
                     for chunk in processed.chunks:
                         chunk.metadata["_pending_file_info"] = {
@@ -534,7 +567,7 @@ class IndexingService:
     def _generate_summaries_for_single_file(
         self,
         scanned_file: ScannedFile,
-        summary_generator: "SummaryGeneratorInterface",
+        summary_generator: SummaryGeneratorInterface,
     ) -> list[SummaryArtifact]:
         """
         Generate summaries for a single file.
@@ -619,6 +652,40 @@ class IndexingService:
             logger.warning(f"Failed to generate file summary for {file_path}: {e}")
 
         return summaries
+
+    async def _build_graph_for_files(
+        self, files: list[ScannedFile]
+    ) -> None:
+        """Build graph data for a list of files in post-processing.
+
+        Runs in the main process after parallel chunk processing completes.
+        SQLite connections cannot cross process boundaries, so graph building
+        must happen here (same pattern as summary generation).
+        """
+        if self._graph_builder is None:
+            return
+
+        logger.debug(f"Building graph for {len(files)} files in post-processing")
+
+        for scanned_file in files:
+            try:
+                ast_nodes: list[ASTNode] = []
+                if self._ast_parser.supports_language(scanned_file.language):
+                    ast_nodes = self._ast_parser.parse(
+                        scanned_file.content, scanned_file.language
+                    )
+                await self._graph_builder.process_file(
+                    file_path=str(scanned_file.path),
+                    content=scanned_file.content,
+                    language=scanned_file.language,
+                    ast_nodes=ast_nodes,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Graph building failed for {scanned_file.path}: {e}"
+                )
+
+        logger.debug("Graph building post-processing complete")
 
     def _extract_imports_for_summary(
         self, content: str, language: str
@@ -927,6 +994,12 @@ class IndexingService:
             for i, path in enumerate(deleted_paths):
                 await self._vector_store.delete_by_file(path, collection_name=collection_name)
                 self._metadata_store.delete_file(path)
+                # Remove graph data for deleted files
+                if self._graph_builder is not None:
+                    try:
+                        await self._graph_builder.remove_file(path)
+                    except Exception as e:
+                        logger.warning(f"Graph removal failed for deleted file {path}: {e}")
                 if (i + 1) % 10 == 0 or i == len(deleted_paths) - 1:
                     self._report_progress(
                         i + 1, len(deleted_paths), f"Removed {i + 1} deleted files"
@@ -939,6 +1012,12 @@ class IndexingService:
             for i, path in enumerate(modified_paths):
                 # delete_by_file removes all artifacts (chunks and summaries) for the file
                 await self._vector_store.delete_by_file(path, collection_name=collection_name)
+                # Remove graph data for modified files (will be rebuilt below)
+                if self._graph_builder is not None:
+                    try:
+                        await self._graph_builder.remove_file(path)
+                    except Exception as e:
+                        logger.warning(f"Graph removal failed for modified file {path}: {e}")
                 if (i + 1) % 10 == 0 or i == len(modified_paths) - 1:
                     self._report_progress(
                         i + 1, len(modified_paths), f"Removed old artifacts for {i + 1} modified files"
