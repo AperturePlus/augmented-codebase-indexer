@@ -17,6 +17,8 @@ def test_list_tools_returns_expected_tools():
         "get_index_status",
         "update_index",
         "list_indexed_repos",
+        "get_symbol_context",
+        "query_graph",
     }
 
     found_tools = {tool.name for tool in tools}
@@ -150,8 +152,8 @@ def test_tool_count_unchanged():
     """Test that the number of tools remains the same after refactoring."""
     tools = list_tools()
 
-    # Should have exactly 5 tools
-    assert len(tools) == 5
+    # Should have exactly 7 tools
+    assert len(tools) == 7
 
 
 def test_services_module_exports():

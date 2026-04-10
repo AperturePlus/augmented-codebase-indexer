@@ -1,9 +1,13 @@
 """MCP tool handlers for ACI."""
+from __future__ import annotations
+
 import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import asdict
 from typing import Any
 
 from mcp.types import TextContent
@@ -20,6 +24,8 @@ from aci.mcp.context import MCPContext
 from aci.mcp.services import MAX_WORKERS
 from aci.services import SearchMode, TextSearchOptions
 from aci.services.repository_resolver import resolve_repository
+
+logger = logging.getLogger(__name__)
 
 # Handler type: takes arguments dict and MCPContext, returns list of TextContent
 _HANDLERS: dict[str, Callable[[dict, MCPContext], Awaitable[list[TextContent]]]] = {}
@@ -472,3 +478,165 @@ async def _handle_list_repos(arguments: dict, ctx: MCPContext) -> list[TextConte
     }
 
     return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+
+# ---------------------------------------------------------------------------
+# Graph-disabled error helper
+# ---------------------------------------------------------------------------
+
+_GRAPH_DISABLED_ERROR = json.dumps(
+    {
+        "error": "graph feature is disabled",
+        "hint": "set ACI_GRAPH_ENABLED=true",
+    },
+    indent=2,
+)
+
+
+def _serialize_context_package(pkg: Any) -> str:
+    """Serialize a ContextPackage to JSON, handling dataclass nesting."""
+    return json.dumps(asdict(pkg), indent=2, default=str)
+
+
+def _serialize_graph_query_result(result: Any) -> str:
+    """Serialize a GraphQueryResult to JSON, handling dataclass nesting."""
+    return json.dumps(asdict(result), indent=2, default=str)
+
+
+@_register("get_symbol_context")
+async def _handle_get_symbol_context(
+    arguments: dict, ctx: MCPContext
+) -> list[TextContent]:
+    """Handle get_symbol_context: build a QueryRequest, route, serialize."""
+    from aci.core.graph_models import QueryRequest
+
+    symbol = arguments.get("symbol", "")
+    if not symbol:
+        return [TextContent(type="text", text="Error: 'symbol' is required")]
+
+    path_str = arguments.get("path", "")
+    if not path_str:
+        return [TextContent(type="text", text="Error: 'path' is required")]
+
+    # Validate the codebase path
+    resolution = _validate_mcp_directory_path(path_str, ctx)
+    if not resolution.valid:
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: {resolution.error_message} (path: {path_str})",
+            )
+        ]
+
+    # Check graph availability
+    if ctx.query_router is None:
+        return [TextContent(type="text", text=_GRAPH_DISABLED_ERROR)]
+
+    depth = arguments.get("depth", 1)
+    max_tokens = arguments.get("max_tokens", 8192)
+    include_graph_context = arguments.get("include_graph_context", False)
+
+    request = QueryRequest(
+        query=symbol,
+        query_type="symbol",
+        depth=min(int(depth), 3),
+        max_tokens=int(max_tokens),
+        include_graph_context=bool(include_graph_context),
+    )
+
+    try:
+        package = await ctx.query_router.query(request)
+    except Exception as e:
+        logger.exception("get_symbol_context failed for %r", symbol)
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({"error": str(e)}, indent=2),
+            )
+        ]
+
+    return [TextContent(type="text", text=_serialize_context_package(package))]
+
+
+@_register("query_graph")
+async def _handle_query_graph(
+    arguments: dict, ctx: MCPContext
+) -> list[TextContent]:
+    """Handle query_graph: traverse the graph store and return results."""
+    from aci.core.graph_models import GraphQueryResult
+
+    symbol_or_path = arguments.get("symbol_or_path", "")
+    if not symbol_or_path:
+        return [TextContent(type="text", text="Error: 'symbol_or_path' is required")]
+
+    path_str = arguments.get("path", "")
+    if not path_str:
+        return [TextContent(type="text", text="Error: 'path' is required")]
+
+    query_type = arguments.get("query_type", "")
+    if query_type not in ("callers", "callees", "dependencies", "dependents"):
+        return [
+            TextContent(
+                type="text",
+                text="Error: 'query_type' must be one of: callers, callees, dependencies, dependents",
+            )
+        ]
+
+    # Validate the codebase path
+    resolution = _validate_mcp_directory_path(path_str, ctx)
+    if not resolution.valid:
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: {resolution.error_message} (path: {path_str})",
+            )
+        ]
+
+    # Check graph availability
+    if ctx.graph_store is None:
+        return [TextContent(type="text", text=_GRAPH_DISABLED_ERROR)]
+
+    depth = min(int(arguments.get("depth", 1)), 3)
+    include_inferred = arguments.get("include_inferred", True)
+
+    store = ctx.graph_store
+
+    try:
+        # Map query_type to direction for the graph store
+        if query_type in ("callers", "dependents"):
+            direction = "callers"
+        else:
+            direction = "callees"
+
+        nodes = await asyncio.to_thread(
+            store.get_neighbors,
+            symbol_or_path,
+            direction,
+            depth=depth,
+            include_inferred=bool(include_inferred),
+        )
+        edges = await asyncio.to_thread(
+            store.get_edges,
+            symbol_or_path,
+            direction,
+            depth=depth,
+            include_inferred=bool(include_inferred),
+        )
+
+        result = GraphQueryResult(
+            symbol=symbol_or_path,
+            query_type=query_type,
+            nodes=nodes,
+            edges=edges,
+            depth=depth,
+        )
+    except Exception as e:
+        logger.exception("query_graph failed for %r", symbol_or_path)
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({"error": str(e)}, indent=2),
+            )
+        ]
+
+    return [TextContent(type="text", text=_serialize_graph_query_result(result))]
