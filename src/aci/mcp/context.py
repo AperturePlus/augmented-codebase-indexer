@@ -5,10 +5,13 @@ Provides MCPContext dataclass that encapsulates all services needed by MCP handl
 replacing the Service Locator pattern with explicit dependency injection.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aci.core.config import ACIConfig
 from aci.core.path_utils import RuntimePathMapping, parse_runtime_path_mappings
@@ -17,6 +20,12 @@ from aci.infrastructure.metadata_store import IndexMetadataStore
 from aci.infrastructure.vector_store import VectorStoreInterface
 from aci.services import IndexingService, SearchService
 from aci.services.search_types import RerankerInterface
+
+if TYPE_CHECKING:
+    from aci.core.graph_store import GraphStoreInterface
+    from aci.services.context_assembler import ContextAssembler
+    from aci.services.llm_enricher import LLMEnricher
+    from aci.services.query_router import QueryRouter
 
 
 @dataclass
@@ -36,6 +45,9 @@ class MCPContext:
         indexing_lock: Lock to prevent concurrent indexing operations
         reranker: Optional reranker for cleanup (not used by handlers directly)
         embedding_client: Embedding client for cleanup (not used by handlers directly)
+        graph_store: Optional graph store for code-relationship graphs
+        query_router: Optional unified query router
+        context_assembler: Optional context assembler for structured context
     """
 
     config: ACIConfig
@@ -50,6 +62,12 @@ class MCPContext:
     # These are stored for cleanup purposes only
     reranker: RerankerInterface | None = None
     embedding_client: EmbeddingClientInterface | None = None
+    # Graph and semantic intelligence components
+    graph_store: GraphStoreInterface | None = None
+    query_router: QueryRouter | None = None
+    context_assembler: ContextAssembler | None = None
+    # Stored for cleanup
+    llm_enricher: LLMEnricher | None = None
 
 
 def create_mcp_context() -> MCPContext:
@@ -58,6 +76,7 @@ def create_mcp_context() -> MCPContext:
 
     Uses the centralized create_services() factory to initialize infrastructure,
     then constructs SearchService and IndexingService with proper dependency injection.
+    Wires graph_store, query_router, and context_assembler from ServicesContainer.
 
     Returns:
         MCPContext with all services initialized and ready for use.
@@ -84,16 +103,17 @@ def create_mcp_context() -> MCPContext:
     # Create GrepSearcher with base path from current directory
     grep_searcher = GrepSearcher(base_path=str(Path.cwd()))
 
-    # Create SearchService with injected dependencies
+    # Create SearchService with injected dependencies (including context_assembler)
     search_service = SearchService(
         embedding_client=services.embedding_client,
         vector_store=services.vector_store,
         reranker=services.reranker,
         grep_searcher=grep_searcher,
+        context_assembler=services.context_assembler,
         default_limit=services.config.search.default_limit,
     )
 
-    # Create IndexingService with injected dependencies
+    # Create IndexingService with injected dependencies (including graph_builder)
     indexing_service = IndexingService(
         embedding_client=services.embedding_client,
         vector_store=services.vector_store,
@@ -102,7 +122,23 @@ def create_mcp_context() -> MCPContext:
         chunker=services.chunker,
         batch_size=services.config.embedding.batch_size,
         max_workers=services.config.indexing.max_workers,
+        graph_builder=services.graph_builder,
     )
+
+    # Build QueryRouter now that we have a SearchService
+    query_router: QueryRouter | None = None
+    if services.context_assembler is not None and services.rrf_fuser is not None:
+        from aci.core.ast_parser import TreeSitterParser
+        from aci.services.query_router import QueryRouter as _QueryRouter
+
+        query_router = _QueryRouter(
+            search_service=search_service,
+            graph_store=services.graph_store,
+            ast_parser=TreeSitterParser(),
+            context_assembler=services.context_assembler,
+            rrf_fuser=services.rrf_fuser,
+            graph_enabled=services.config.graph.enabled,
+        )
 
     return MCPContext(
         config=services.config,
@@ -115,6 +151,10 @@ def create_mcp_context() -> MCPContext:
         path_mappings=path_mappings,
         reranker=services.reranker,
         embedding_client=services.embedding_client,
+        graph_store=services.graph_store,
+        query_router=query_router,
+        context_assembler=services.context_assembler,
+        llm_enricher=services.llm_enricher,
     )
 
 
@@ -170,3 +210,25 @@ async def cleanup_context(ctx: MCPContext | None) -> None:
             ctx.metadata_store.close()
         except Exception:
             pass
+
+    # Close graph store
+    if ctx.graph_store:
+        close_fn = getattr(ctx.graph_store, "close", None)
+        if close_fn:
+            try:
+                result = close_fn()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                pass
+
+    # Close LLM enricher (async)
+    if ctx.llm_enricher:
+        close_fn = getattr(ctx.llm_enricher, "close", None)
+        if close_fn:
+            try:
+                result = close_fn()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                pass
