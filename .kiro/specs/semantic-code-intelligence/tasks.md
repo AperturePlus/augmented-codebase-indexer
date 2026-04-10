@@ -71,41 +71,41 @@ Python is the implementation language. Tests use pytest + hypothesis. Linting wi
     - Verify schema_version field is present in exported JSON
     - _Requirements: 13.1, 13.2, 13.3, 13.4_
 
-- [-] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise. Run git add & git commit batchly according to semantic diffs. 
 
-- [~] 4. Reference extractors and AST parser extensions
-  - [ ] 4.1 Add `parse_tree()` method to `TreeSitterParser` in `src/aci/core/ast_parser.py`
+- [x] 4. Reference extractors and AST parser extensions
+  - [x] 4.1 Add `parse_tree()` method to `TreeSitterParser` in `src/aci/core/ast_parser.py`
     - Add thin method returning raw `tree_sitter.Tree` for reuse by Graph_Builder and reference extractors
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.2 Create `ReferenceExtractorInterface` in `src/aci/core/parsers/reference_extractor.py`
+  - [x] 4.2 Create `ReferenceExtractorInterface` in `src/aci/core/parsers/reference_extractor.py`
     - Define abstract `extract_references(root_node, content, file_path) -> list[SymbolReference]`
     - Define abstract `extract_imports(root_node, content, file_path) -> list[SymbolReference]`
     - _Requirements: 1.2_
 
-  - [ ] 4.3 Implement `PythonReferenceExtractor` in `src/aci/core/parsers/python_reference_extractor.py`
+  - [x] 4.3 Implement `PythonReferenceExtractor` in `src/aci/core/parsers/python_reference_extractor.py`
     - Extract function/method calls, imports, type annotations, inheritance references from Python AST
     - Set `parent_symbol` to enclosing function/class FQN where applicable
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.4 Implement `JavaScriptReferenceExtractor` in `src/aci/core/parsers/javascript_reference_extractor.py`
+  - [x] 4.4 Implement `JavaScriptReferenceExtractor` in `src/aci/core/parsers/javascript_reference_extractor.py`
     - Extract calls, imports (ES6 + CommonJS), type annotations (JSDoc/TS), inheritance
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.5 Implement `GoReferenceExtractor` in `src/aci/core/parsers/go_reference_extractor.py`
+  - [x] 4.5 Implement `GoReferenceExtractor` in `src/aci/core/parsers/go_reference_extractor.py`
     - Extract calls, imports, type embedding/interface references
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.6 Implement `JavaReferenceExtractor` in `src/aci/core/parsers/java_reference_extractor.py`
+  - [x] 4.6 Implement `JavaReferenceExtractor` in `src/aci/core/parsers/java_reference_extractor.py`
     - Extract calls, imports, type annotations, inheritance/implements
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.7 Implement `CppReferenceExtractor` in `src/aci/core/parsers/cpp_reference_extractor.py`
+  - [x] 4.7 Implement `CppReferenceExtractor` in `src/aci/core/parsers/cpp_reference_extractor.py`
     - Extract calls, includes, type references, inheritance
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 4.8 Write unit tests for reference extractors
+  - [x] 4.8 Write unit tests for reference extractors
     - Test PythonReferenceExtractor with calls, imports, type annotations, inheritance
     - Test JavaScriptReferenceExtractor with ES6 imports, CommonJS requires, calls
     - Test GoReferenceExtractor with imports, calls, type embedding
@@ -114,7 +114,7 @@ Python is the implementation language. Tests use pytest + hypothesis. Linting wi
     - Test `parent_symbol` is correctly set for nested references
     - _Requirements: 1.1, 1.2_
 
-- [ ] 5. Graph builder and indexing integration
+- [~] 5. Graph builder and indexing integration
   - [ ] 5.1 Implement `GraphBuilder` in `src/aci/services/graph_builder.py`
     - Implement `process_file()`: extract definitions from AST nodes, extract references via ReferenceExtractor, build FQNs, upsert nodes/edges/symbols to GraphStore
     - Implement `remove_file()`: delete all graph data for a file
@@ -139,10 +139,10 @@ Python is the implementation language. Tests use pytest + hypothesis. Linting wi
     - Test incremental update: modify file, verify only affected edges change
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.3_
 
-- [ ] 6. Checkpoint - Ensure all tests pass
+- [~] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Topology analyzer and PageRank scorer
+- [~] 7. Topology analyzer and PageRank scorer
   - [ ] 7.1 Implement `TopologyAnalyzer` in `src/aci/services/topology_analyzer.py`
     - Implement `transitive_callers(symbol_id, max_depth=3)` using GraphStore CTE queries
     - Implement `transitive_callees(symbol_id, max_depth=3)` using GraphStore CTE queries
@@ -170,7 +170,7 @@ Python is the implementation language. Tests use pytest + hypothesis. Linting wi
     - Test computation completes within time budget for moderate graphs
     - _Requirements: 2.6, 2.7, 2.8_
 
-- [ ] 8. RRF fuser and query router
+- [~] 8. RRF fuser and query router
   - [ ] 8.1 Implement `RRFFuser` in `src/aci/services/rrf_fuser.py`
     - Implement `fuse(ranked_lists, k=60)` using Reciprocal Rank Fusion formula
     - Single-list passthrough when only one backend returns results
