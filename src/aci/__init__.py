@@ -310,7 +310,13 @@ class ACI:
         self.close()
 
 
-# Re-export create_app for backward compatibility.
-from aci.http_server import create_app  # noqa: E402
-
 __all__ = ["ACI", "create_app"]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy re-export of ``create_app`` to avoid circular imports at load time."""
+    if name == "create_app":
+        from aci.http_server import create_app  # noqa: PLC0415
+
+        return create_app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
