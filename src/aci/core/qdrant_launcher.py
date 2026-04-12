@@ -1,8 +1,9 @@
 """
 Qdrant launcher helper.
 
-Ensures a Qdrant container is running on the expected port. Attempts to
-start a local Docker container if Qdrant is not reachable.
+Ensures a Qdrant container is running on the expected port. Uses
+``docker compose up -d`` with the bundled compose file so that container
+lifecycle is managed declaratively rather than via ad-hoc ``docker run``.
 """
 
 import logging
@@ -13,6 +14,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# Compose file shipped with the repository.
+_COMPOSE_FILE = Path(__file__).parent.parent.parent.parent / "docker" / "qdrant" / "docker-compose.yaml"
 
 
 def _is_port_open(host: str, port: int) -> bool:
@@ -39,9 +43,16 @@ def ensure_qdrant_running(
     url: str | None = None,
 ) -> None:
     """
-    Ensure a Qdrant instance is reachable. If not, try to start a Docker container.
+    Ensure a Qdrant instance is reachable.
 
-    This is best-effort: if Docker is unavailable, we log a warning and continue.
+    If Qdrant is not reachable on a local endpoint, starts it via
+    ``docker compose up -d`` using the bundled compose file.
+    This is best-effort: if Docker Compose is unavailable, a warning is
+    logged and execution continues.
+
+    The ``container_name`` and ``image`` parameters are accepted for
+    interface compatibility but are not used — the compose file is the
+    single source of truth for those values.
     """
     url = (url or "").strip()
     if not url and host.startswith(("http://", "https://")):
@@ -80,48 +91,35 @@ def ensure_qdrant_running(
         )
         return
 
+    compose_file = _COMPOSE_FILE.resolve()
+    if not compose_file.exists():
+        logger.warning(
+            "Compose file not found at %s; cannot auto-start Qdrant on %s:%s",
+            compose_file,
+            check_host,
+            check_port,
+        )
+        return
+
     try:
-        # Check if the container already exists (including stopped containers)
-        # Use -aq to include all containers, not just running ones
-        inspect = subprocess.run(
-            ["docker", "ps", "-aq", "-f", f"name=^{container_name}$"],
+        env = {
+            **os.environ,
+            "ACI_VECTOR_STORE_PORT": str(check_port),
+        }
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+            check=False,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
+            env=env,
         )
-        if inspect.returncode == 0 and inspect.stdout.strip():
-            # Container exists (running or stopped); try to start it
-            subprocess.run(
-                ["docker", "start", container_name],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        else:
-            # Container doesn't exist; run a new one
-            subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    container_name,
-                    "-p",
-                    f"{check_port}:6333",
-                    image,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
 
         if _is_port_open(check_host, check_port):
-            logger.info("Started Qdrant container on %s:%s", check_host, check_port)
+            logger.info("Started Qdrant via docker compose on %s:%s", check_host, check_port)
         else:
             logger.warning(
-                "Attempted to start Qdrant container, but %s:%s is still unreachable",
+                "Attempted to start Qdrant via docker compose, but %s:%s is still unreachable",
                 check_host,
                 check_port,
             )
