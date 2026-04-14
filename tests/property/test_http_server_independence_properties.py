@@ -15,17 +15,34 @@ def get_transitive_imports(module_name: str) -> set[str]:
     This function imports the module and collects all modules
     that were loaded as a result.
     """
+    aci_prefix = "aci"
+    aci_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == aci_prefix or name.startswith(f"{aci_prefix}.")
+    }
+    for mod in aci_modules:
+        del sys.modules[mod]
+
     # Record modules before import
     before_import = set(sys.modules.keys())
 
-    # Import the module
-    __import__(module_name)
+    try:
+        # Import the module
+        __import__(module_name)
 
-    # Record modules after import
-    after_import = set(sys.modules.keys())
-
-    # Return newly imported modules
-    return after_import - before_import
+        # Record modules after import
+        after_import = set(sys.modules.keys())
+        return after_import - before_import
+    finally:
+        loaded_aci_modules = [
+            name
+            for name in sys.modules.keys()
+            if name == aci_prefix or name.startswith(f"{aci_prefix}.")
+        ]
+        for mod in loaded_aci_modules:
+            del sys.modules[mod]
+        sys.modules.update(aci_modules)
 
 
 def test_http_server_does_not_import_cli():
@@ -38,11 +55,6 @@ def test_http_server_does_not_import_cli():
 
     This ensures the HTTP server can be used without depending on CLI code.
     """
-    # Clear any cached imports of aci modules to get clean import
-    modules_to_clear = [key for key in sys.modules.keys() if key.startswith("aci")]
-    for mod in modules_to_clear:
-        del sys.modules[mod]
-
     # Get transitive imports of http_server
     transitive_imports = get_transitive_imports("aci.http_server")
 
@@ -62,11 +74,6 @@ def test_http_server_imports_from_services_container():
 
     The HTTP server SHALL import service creation from `aci.services.container`.
     """
-    # Clear any cached imports
-    modules_to_clear = [key for key in sys.modules.keys() if key.startswith("aci")]
-    for mod in modules_to_clear:
-        del sys.modules[mod]
-
     # Import http_server
     transitive_imports = get_transitive_imports("aci.http_server")
 
