@@ -12,15 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from aci.core import graph_models
 from aci.core.config import ACIConfig
-from aci.core.graph_models import (
-    ContextMetadata,
-    ContextPackage,
-    GraphEdge,
-    GraphNode,
-    GraphQueryResult,
-    QueryRequest,
-)
 from aci.infrastructure.vector_store import SearchResult
 from aci.services.indexing_models import IndexingResult
 
@@ -40,8 +33,8 @@ def _make_search_result(chunk_id: str = "c1") -> SearchResult:
     )
 
 
-def _make_graph_node(symbol_id: str = "mod.Foo.bar") -> GraphNode:
-    return GraphNode(
+def _make_graph_node(symbol_id: str = "mod.Foo.bar") -> graph_models.GraphNode:
+    return graph_models.GraphNode(
         symbol_id=symbol_id,
         symbol_name="bar",
         symbol_type="function",
@@ -52,8 +45,8 @@ def _make_graph_node(symbol_id: str = "mod.Foo.bar") -> GraphNode:
     )
 
 
-def _make_graph_edge(src: str = "mod.Foo.bar", tgt: str = "mod.Baz.qux") -> GraphEdge:
-    return GraphEdge(
+def _make_graph_edge(src: str = "mod.Foo.bar", tgt: str = "mod.Baz.qux") -> graph_models.GraphEdge:
+    return graph_models.GraphEdge(
         source_id=src,
         target_id=tgt,
         edge_type="call",
@@ -203,7 +196,7 @@ class TestSearch:
 
     def test_search_normalises_context_package(self, aci_instance):
         """When search returns a ContextPackage, normalise to empty list."""
-        pkg = ContextPackage(query="q")
+        pkg = graph_models.ContextPackage(query="q")
         aci_instance._mock_search.search = AsyncMock(return_value=pkg)
 
         out = aci_instance.search("q")
@@ -220,26 +213,26 @@ class TestGetContext:
     """get_context() must bridge to QueryRouter and return ContextPackage."""
 
     def test_get_context_returns_context_package(self, aci_instance):
-        expected = ContextPackage(
+        expected = graph_models.ContextPackage(
             query="mod.Foo.bar",
-            metadata=ContextMetadata(symbol_count=1),
+            metadata=graph_models.ContextMetadata(symbol_count=1),
         )
         aci_instance._mock_router.query = AsyncMock(return_value=expected)
 
         result = aci_instance.get_context("mod.Foo.bar")
 
-        assert isinstance(result, ContextPackage)
+        assert isinstance(result, graph_models.ContextPackage)
         assert result.query == "mod.Foo.bar"
 
     def test_get_context_builds_query_request(self, aci_instance):
-        expected = ContextPackage(query="mod.Foo.bar")
+        expected = graph_models.ContextPackage(query="mod.Foo.bar")
         aci_instance._mock_router.query = AsyncMock(return_value=expected)
 
         aci_instance.get_context("mod.Foo.bar", depth=2, max_tokens=4096)
 
         call_args = aci_instance._mock_router.query.call_args
         request = call_args[0][0]
-        assert isinstance(request, QueryRequest)
+        assert isinstance(request, graph_models.QueryRequest)
         assert request.query == "mod.Foo.bar"
         assert request.depth == 2
         assert request.max_tokens == 4096
@@ -252,7 +245,7 @@ class TestGetContext:
 
         result = aci_instance.get_context("mod.Foo.bar")
 
-        assert isinstance(result, ContextPackage)
+        assert isinstance(result, graph_models.ContextPackage)
         assert result.query == "mod.Foo.bar"
 
 
@@ -272,7 +265,7 @@ class TestGetGraph:
 
         result = aci_instance.get_graph("mod.Foo.bar", query_type="callees")
 
-        assert isinstance(result, GraphQueryResult)
+        assert isinstance(result, graph_models.GraphQueryResult)
         assert result.symbol == "mod.Foo.bar"
         assert result.query_type == "callees"
         assert len(result.nodes) == 1
@@ -284,7 +277,7 @@ class TestGetGraph:
 
         result = aci_instance.get_graph("mod.Foo.bar")
 
-        assert isinstance(result, GraphQueryResult)
+        assert isinstance(result, graph_models.GraphQueryResult)
         assert result.nodes == []
         assert result.edges == []
 

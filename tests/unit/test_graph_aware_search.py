@@ -12,12 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from aci.core.graph_models import (
-    ContextMetadata,
-    ContextPackage,
-    QueryRequest,
-    SymbolDetail,
-)
+from aci.core import graph_models
 from aci.infrastructure.vector_store import SearchResult
 from aci.services.search_service import SearchService
 
@@ -43,11 +38,11 @@ def _make_search_result(
     )
 
 
-def _make_context_package(query: str = "test") -> ContextPackage:
-    return ContextPackage(
+def _make_context_package(query: str = "test") -> graph_models.ContextPackage:
+    return graph_models.ContextPackage(
         query=query,
         symbols=[
-            SymbolDetail(
+            graph_models.SymbolDetail(
                 fqn="mod.foo",
                 source_code="def foo(): pass",
                 summary="A test function.",
@@ -57,7 +52,7 @@ def _make_context_package(query: str = "test") -> ContextPackage:
             ),
         ],
         file_summaries=[],
-        metadata=ContextMetadata(
+        metadata=graph_models.ContextMetadata(
             query_params={"query": query},
             symbol_count=1,
             total_tokens=10,
@@ -80,7 +75,7 @@ def _make_vector_store(results: list[SearchResult] | None = None) -> MagicMock:
 
 
 def _make_context_assembler(
-    package: ContextPackage | None = None,
+    package: graph_models.ContextPackage | None = None,
 ) -> MagicMock:
     assembler = MagicMock()
     assembler.enrich_search_results = AsyncMock(
@@ -156,7 +151,7 @@ class TestIncludeGraphContextTrueWithAssembler:
 
         out = await service.search("my query", include_graph_context=True)
 
-        assert isinstance(out, ContextPackage)
+        assert isinstance(out, graph_models.ContextPackage)
         assert out.query == "my query"
         assert len(out.symbols) == 1
         assert out.symbols[0].fqn == "mod.foo"
@@ -182,7 +177,7 @@ class TestIncludeGraphContextTrueWithAssembler:
         passed_request = call_args[0][1]
 
         assert len(passed_results) == 2
-        assert isinstance(passed_request, QueryRequest)
+        assert isinstance(passed_request, graph_models.QueryRequest)
         assert passed_request.query == "find me"
         assert passed_request.include_graph_context is True
 
