@@ -8,6 +8,10 @@ Property-based tests for HTTP server independence from CLI.
 import sys
 
 
+def _is_aci_module(name: str) -> bool:
+    return name == "aci" or name.startswith("aci.")
+
+
 def get_transitive_imports(module_name: str) -> set[str]:
     """
     Get all transitive imports for a module.
@@ -15,12 +19,12 @@ def get_transitive_imports(module_name: str) -> set[str]:
     This function imports the module and collects all modules
     that were loaded as a result.
     """
-    aci_prefix = "aci"
     aci_modules = {
         name: module
         for name, module in sys.modules.items()
-        if name == aci_prefix or name.startswith(f"{aci_prefix}.")
+        if _is_aci_module(name)
     }
+    # Import from a clean aci module state, then restore the previous state.
     for mod in aci_modules:
         del sys.modules[mod]
 
@@ -38,7 +42,7 @@ def get_transitive_imports(module_name: str) -> set[str]:
         loaded_aci_modules = [
             name
             for name in sys.modules.keys()
-            if name == aci_prefix or name.startswith(f"{aci_prefix}.")
+            if _is_aci_module(name)
         ]
         for mod in loaded_aci_modules:
             del sys.modules[mod]
