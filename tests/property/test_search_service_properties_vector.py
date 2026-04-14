@@ -44,6 +44,7 @@ class TestSearchResultsOrdering:
         assume(query.strip())  # Non-empty query
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -59,7 +60,8 @@ class TestSearchResultsOrdering:
                         f"Results not sorted: {results[i].score} < {results[i + 1].score}"
                     )
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -93,6 +95,7 @@ class TestSearchResultCompleteness:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -115,7 +118,8 @@ class TestSearchResultCompleteness:
                 assert result.content, "content should not be empty"
                 assert result.chunk_id, "chunk_id should not be empty"
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -150,6 +154,7 @@ class TestSearchResultLimit:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -161,7 +166,8 @@ class TestSearchResultLimit:
 
             assert len(results) <= limit, f"Got {len(results)} results, expected <= {limit}"
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -196,6 +202,7 @@ class TestSearchFileFilter:
         assume(len(file_contents) >= 2)
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {}
             for i, content in enumerate(file_contents):
@@ -219,7 +226,8 @@ class TestSearchFileFilter:
                     result.file_path, filter_pattern
                 ), f"Result file_path '{result.file_path}' does not match filter '{filter_pattern}'"
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @given(
@@ -243,6 +251,7 @@ class TestSearchFileFilter:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -259,5 +268,6 @@ class TestSearchFileFilter:
                     f"Result from '{result.file_path}' but expected '{target_file}'"
                 )
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)

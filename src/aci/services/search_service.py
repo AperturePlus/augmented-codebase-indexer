@@ -4,9 +4,12 @@ Search Service for Project ACI.
 Provides semantic search functionality over indexed codebases.
 """
 
+from __future__ import annotations
+
 import asyncio
 import inspect
 import logging
+from typing import TYPE_CHECKING
 
 from aci.infrastructure.embedding import EmbeddingClientInterface
 from aci.infrastructure.grep_searcher import GrepSearcherInterface, TextSearchMode
@@ -19,6 +22,10 @@ from aci.services.search_utils import (
     normalize_scores,
     parse_query_modifiers,
 )
+
+if TYPE_CHECKING:
+    from aci.core.graph_models import ContextPackage
+    from aci.services.context_assembler import ContextAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +45,7 @@ class SearchService:
         vector_store: VectorStoreInterface,
         reranker: RerankerInterface | None = None,
         grep_searcher: GrepSearcherInterface | None = None,
+        context_assembler: ContextAssembler | None = None,
         default_limit: int = 10,
         recall_multiplier: int = 5,
         vector_candidates: int = 20,
@@ -51,6 +59,7 @@ class SearchService:
             vector_store: Store for vector search
             reranker: Optional re-ranker for result refinement
             grep_searcher: Optional grep searcher for keyword search
+            context_assembler: Optional context assembler for graph enrichment
             default_limit: Default number of results to return
             recall_multiplier: Multiplier for initial recall when re-ranking
             vector_candidates: Number of candidates to retrieve from vector search
@@ -60,6 +69,7 @@ class SearchService:
         self._vector_store = vector_store
         self._reranker = reranker
         self._grep_searcher = grep_searcher
+        self._context_assembler = context_assembler
         self._default_limit = default_limit
         self._recall_multiplier = recall_multiplier
         self._vector_candidates = vector_candidates
@@ -76,7 +86,8 @@ class SearchService:
         collection_name: str | None = None,
         artifact_types: list[str] | None = None,
         text_options: TextSearchOptions | None = None,
-    ) -> list[SearchResult]:
+        include_graph_context: bool = False,
+    ) -> list[SearchResult] | ContextPackage:
         """
         Perform semantic search.
 
@@ -94,9 +105,15 @@ class SearchService:
             artifact_types: Optional list of artifact types to filter by
                 (e.g., ["chunk", "function_summary", "class_summary", "file_summary"]).
                 If None, returns all artifact types.
+            include_graph_context: When True and a context assembler is
+                available, enrich results with graph context and return a
+                :class:`ContextPackage`.  When True but no assembler is
+                configured, silently returns unenriched results.
 
         Returns:
-            List of SearchResult sorted by relevance
+            List of SearchResult sorted by relevance, or a ContextPackage
+            when ``include_graph_context`` is True and an assembler is
+            available.
         """
         text_options = text_options or TextSearchOptions()
         limit = limit or self._default_limit
@@ -126,7 +143,19 @@ class SearchService:
             candidates = apply_exclusions(candidates, exclude_patterns)
 
         # Re-rank or sort
-        return await self._finalize_results(candidates, search_query, limit, use_rerank)
+        results = await self._finalize_results(candidates, search_query, limit, use_rerank)
+
+        # Graph enrichment (Req 9.1–9.4)
+        if include_graph_context and self._context_assembler is not None:
+            from aci.core.graph_models import QueryRequest
+
+            request = QueryRequest(
+                query=search_query,
+                include_graph_context=True,
+            )
+            return await self._context_assembler.enrich_search_results(results, request)
+
+        return results
 
     async def _dispatch_search(
         self,

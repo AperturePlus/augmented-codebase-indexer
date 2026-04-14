@@ -162,6 +162,14 @@ def test_services_container_dataclass_has_expected_fields():
         "file_scanner",
         "chunker",
         "reranker",
+        "graph_store",
+        "graph_builder",
+        "topology_analyzer",
+        "pagerank_scorer",
+        "context_assembler",
+        "query_router",
+        "llm_enricher",
+        "rrf_fuser",
     }
 
     actual_fields = {f.name for f in fields(ServicesContainer)}

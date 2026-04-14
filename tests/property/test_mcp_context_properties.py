@@ -174,6 +174,10 @@ def test_mcp_context_dataclass_has_expected_fields():
         "path_mappings",
         "reranker",
         "embedding_client",
+        "graph_store",
+        "query_router",
+        "context_assembler",
+        "llm_enricher",
     }
 
     actual_fields = {f.name for f in fields(MCPContext)}

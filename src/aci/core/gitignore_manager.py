@@ -11,6 +11,7 @@ Provides proper gitignore pattern parsing and matching with support for:
 """
 
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -309,7 +310,8 @@ class GitignoreManager:
 
         # Walk the directory tree to find all .gitignore files
         try:
-            for dirpath, dirnames, filenames in root_path.walk():
+            for dirpath_str, dirnames, filenames in os.walk(root_path):
+                dirpath = Path(dirpath_str)
                 if ".gitignore" in filenames:
                     gitignore_path = dirpath / ".gitignore"
                     try:
