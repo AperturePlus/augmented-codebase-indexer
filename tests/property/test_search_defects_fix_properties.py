@@ -131,6 +131,7 @@ class TestRecallMultiplierExpansion:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -165,7 +166,8 @@ class TestRecallMultiplierExpansion:
                 f"Expected fetch limit {expected_fetch}, got {tracking_store.last_search_limit}"
             )
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @given(
@@ -183,6 +185,7 @@ class TestRecallMultiplierExpansion:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -210,7 +213,8 @@ class TestRecallMultiplierExpansion:
             # Should NOT expand since no reranker
             assert tracking_store.last_search_limit == vector_candidates
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -238,6 +242,7 @@ class TestRerankerReceivesFullCandidates:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -266,7 +271,8 @@ class TestRerankerReceivesFullCandidates:
             assert len(results) <= limit, f"Got {len(results)} results, expected <= {limit}"
             assert reranker.received_top_k == limit
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -402,6 +408,7 @@ class TestRerankerBypassesNormalization:
         assume(query.strip())
 
         temp_dir = Path(tempfile.mkdtemp())
+        metadata_store = None
         try:
             files_dict = {f"module_{i}.py": content for i, content in enumerate(file_contents)}
 
@@ -434,5 +441,6 @@ class TestRerankerBypassesNormalization:
             # but we verify the reranker was called
             assert reranker.received_candidates is not None
         finally:
-            metadata_store.close()
+            if metadata_store:
+                metadata_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)

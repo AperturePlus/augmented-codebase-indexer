@@ -26,6 +26,18 @@
         "ACI_VECTOR_STORE_URL=http://host.docker.internal:6333",
         "-e",
         "ACI_VECTOR_STORE_VECTOR_SIZE=1024",
+        "-e",
+        "ACI_GRAPH_ENABLED",
+        "-e",
+        "ACI_LLM_ENABLED",
+        "-e",
+        "ACI_LLM_API_URL",
+        "-e",
+        "ACI_LLM_API_KEY",
+        "-e",
+        "ACI_LLM_MODEL",
+        "-e",
+        "ACI_HTTP_ENABLED",
         "aci-mcp:latest"
       ],
       "env": {

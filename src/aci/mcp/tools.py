@@ -133,4 +133,70 @@ def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
+        Tool(
+            name="get_symbol_context",
+            description="Get structured context for a symbol or file path, including source code, summaries, callers/callees, and graph neighborhood. Returns a rich context package for LLM consumption.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Fully-qualified symbol name (e.g., 'aci.services.search_service.SearchService.search') or file path to query",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the indexed codebase (required for isolation between codebases)",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Graph neighborhood depth to include (1-3, default 1)",
+                        "minimum": 1,
+                        "maximum": 3,
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum token count for the returned context package (default 8192)",
+                        "minimum": 1,
+                    },
+                    "include_graph_context": {
+                        "type": "boolean",
+                        "description": "Whether to include graph neighborhood data (callers, callees, dependencies) in the response (default false)",
+                    },
+                },
+                "required": ["symbol", "path"],
+            },
+        ),
+        Tool(
+            name="query_graph",
+            description="Query the code relationship graph for a symbol or module. Returns callers, callees, dependencies, or dependents with their graph edges.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "symbol_or_path": {
+                        "type": "string",
+                        "description": "Fully-qualified symbol name or module file path to query",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the indexed codebase (required for isolation between codebases)",
+                    },
+                    "query_type": {
+                        "type": "string",
+                        "enum": ["callers", "callees", "dependencies", "dependents"],
+                        "description": "Type of graph query to perform",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Traversal depth (1-3, default 1)",
+                        "minimum": 1,
+                        "maximum": 3,
+                    },
+                    "include_inferred": {
+                        "type": "boolean",
+                        "description": "Whether to include LLM-inferred edges in results (default true)",
+                    },
+                },
+                "required": ["symbol_or_path", "path", "query_type"],
+            },
+        ),
     ]

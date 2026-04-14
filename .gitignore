@@ -1,8 +1,7 @@
-.kiro/
+
 .hypothesis
 .venv/
 *__pycache__*/
-uv.lock
 .pytest_cache/.venv-wsl/
 .diagnoses/
 .env

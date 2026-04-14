@@ -140,6 +140,18 @@ class TreeSitterParser(ASTParserInterface):
         """
         return language in SUPPORTED_LANGUAGES and language in self._language_parsers
 
+    def parse_tree(self, content: str, language: str) -> Any:
+        """Parse content and return the raw tree-sitter Tree for reuse.
+
+        Returns a ``tree_sitter.Tree`` or ``None`` if the language cannot be loaded.
+        """
+        if not self._ensure_language_loaded(language):
+            return None
+        parser = self._parsers.get(language)
+        if not parser:
+            return None
+        return parser.parse(content.encode("utf-8"))
+
     def parse(self, content: str, language: str) -> list[ASTNode]:
         """
         Parse code content and return AST nodes.

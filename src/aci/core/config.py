@@ -182,6 +182,39 @@ class ServerConfig:
 
 
 @dataclass
+class GraphConfig:
+    """Configuration for graph-based code analysis."""
+
+    enabled: bool = field(default_factory=lambda: _get_default("graph", "enabled", True))
+    storage_path: str = field(
+        default_factory=lambda: _get_default("graph", "storage_path", ".aci/graph.db")
+    )
+    max_depth: int = field(default_factory=lambda: _get_default("graph", "max_depth", 3))
+
+
+@dataclass
+class LLMConfig:
+    """Configuration for LLM enrichment."""
+
+    enabled: bool = field(default_factory=lambda: _get_default("llm", "enabled", False))
+    api_url: str = field(default_factory=lambda: _get_default("llm", "api_url", ""))
+    api_key: str = field(default_factory=lambda: _get_default("llm", "api_key", ""))
+    model: str = field(default_factory=lambda: _get_default("llm", "model", ""))
+    batch_size: int = field(default_factory=lambda: _get_default("llm", "batch_size", 10))
+    timeout: float = field(default_factory=lambda: _get_default("llm", "timeout", 60.0))
+    confidence_threshold: float = field(
+        default_factory=lambda: _get_default("llm", "confidence_threshold", 0.5)
+    )
+
+
+@dataclass
+class HttpConfig:
+    """Configuration for the HTTP server feature toggle."""
+
+    enabled: bool = field(default_factory=lambda: _get_default("http", "enabled", False))
+
+
+@dataclass
 class ACIConfig:
     """Main configuration class for Project ACI."""
 
@@ -191,6 +224,9 @@ class ACIConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    graph: GraphConfig = field(default_factory=GraphConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    http: HttpConfig = field(default_factory=HttpConfig)
 
     def apply_env_overrides(self) -> "ACIConfig":
         """
@@ -251,6 +287,20 @@ class ACIConfig:
             # Server config
             "ACI_SERVER_HOST": ("server", "host", str),
             "ACI_SERVER_PORT": ("server", "port", int),
+            # Graph config
+            "ACI_GRAPH_ENABLED": ("graph", "enabled", _parse_bool),
+            "ACI_GRAPH_STORAGE_PATH": ("graph", "storage_path", str),
+            "ACI_GRAPH_MAX_DEPTH": ("graph", "max_depth", int),
+            # LLM config
+            "ACI_LLM_ENABLED": ("llm", "enabled", _parse_bool),
+            "ACI_LLM_API_URL": ("llm", "api_url", str),
+            "ACI_LLM_API_KEY": ("llm", "api_key", str),
+            "ACI_LLM_MODEL": ("llm", "model", str),
+            "ACI_LLM_BATCH_SIZE": ("llm", "batch_size", int),
+            "ACI_LLM_TIMEOUT": ("llm", "timeout", float),
+            "ACI_LLM_CONFIDENCE_THRESHOLD": ("llm", "confidence_threshold", float),
+            # HTTP config
+            "ACI_HTTP_ENABLED": ("http", "enabled", _parse_bool),
         }
 
         for env_var, (section, key, converter) in env_mappings.items():
@@ -305,6 +355,9 @@ class ACIConfig:
             search=create_subconfig(SearchConfig, data.get("search", {})),
             logging=create_subconfig(LoggingConfig, data.get("logging", {})),
             server=create_subconfig(ServerConfig, data.get("server", {})),
+            graph=create_subconfig(GraphConfig, data.get("graph", {})),
+            llm=create_subconfig(LLMConfig, data.get("llm", {})),
+            http=create_subconfig(HttpConfig, data.get("http", {})),
         )
 
     def to_dict(self) -> dict:
@@ -345,6 +398,11 @@ class ACIConfig:
         if "vector_store" in config_dict and "api_key" in config_dict["vector_store"]:
             if config_dict["vector_store"]["api_key"]:
                 config_dict["vector_store"]["api_key"] = "[REDACTED]"
+
+        # Redact sensitive fields in LLM config
+        if "llm" in config_dict and "api_key" in config_dict["llm"]:
+            if config_dict["llm"]["api_key"]:
+                config_dict["llm"]["api_key"] = "[REDACTED]"
 
         return config_dict
 

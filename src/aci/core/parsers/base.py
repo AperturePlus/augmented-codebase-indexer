@@ -25,6 +25,17 @@ class ASTNode:
     docstring: str | None = None  # Documentation string if present
 
 
+@dataclass
+class SymbolReference:
+    """A reference to a symbol found in source code."""
+
+    name: str  # raw reference text, e.g. "SearchService.search"
+    ref_type: str  # "call" | "import" | "type_annotation" | "inheritance"
+    file_path: str  # file where the reference appears
+    line: int  # 1-based line number
+    parent_symbol: str | None = None  # FQN of the enclosing function/method/class
+
+
 class LanguageParser(ABC):
     """
     Abstract base class for language-specific parsers.
