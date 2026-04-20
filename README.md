@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![linux.do](https://img.shields.io/badge/linux.do-%E6%8E%A8%E5%B9%BF%E9%93%BE%E6%8E%A5-orange)](https://linux.do)
 
-Language: **English** | [简体中文](doc/README.zh-CN.md)
+Language: **English** | [简体中文](docs/README.zh-CN.md)
 
 ---
 
@@ -70,7 +70,7 @@ That's it. See [Installation](docs/installation.md) for full setup details.
 - [CLI Usage & Search Syntax](docs/cli-usage.md)
 - [MCP Integration](docs/mcp-integration.md)
 - [Security](docs/security.md)
-- [Chunking Algorithm](doc/CHUNKING_ALGORITHM.zh-CN.md)
+- [Chunking Algorithm](docs/CHUNKING_ALGORITHM.zh-CN.md)
 
 ---
 
